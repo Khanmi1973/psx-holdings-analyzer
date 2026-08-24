@@ -1192,21 +1192,51 @@ async function runWorkflow(inputs, label) {
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 /* Read the freshly committed data straight from the repo, so we do not have to
-   wait for the Pages deployment to catch up. */
+   wait for the Pages deployment to catch up.
+
+   This deliberately uses the Contents API rather than raw.githubusercontent.com:
+   the raw CDN caches for minutes and happily serves the pre-run file, which
+   would show stale data immediately after a successful run. The API reflects
+   the commit at once. Raw is kept only as a fallback. */
+function parsePayload(txt) {
+  const json = txt.replace(/^\s*window\.PSX_DATA\s*=\s*/, '').replace(/;\s*$/, '');
+  const d = JSON.parse(json);
+  return d && d.stocks ? d : null;
+}
+
 async function reloadFromRepo() {
-  const url = `https://raw.githubusercontent.com/${GH.repo}/main/docs/data/psx_data.js?t=${Date.now()}`;
-  try {
-    const r = await fetch(url, {cache:'no-store'});
-    if (!r.ok) return false;
-    const txt = await r.text();
-    const json = txt.replace(/^\s*window\.PSX_DATA\s*=\s*/, '').replace(/;\s*$/, '');
-    const d = JSON.parse(json);
-    if (!d.stocks) return false;
-    DATA = d;
-    if (d.manual) { MANUAL = {...MANUAL, ...d.manual}; localStorage.setItem('psx_manual', JSON.stringify(MANUAL)); }
-    rebuild(); stamp();
-    return true;
-  } catch (e) { return false; }
+  const path = 'docs/data/psx_data.js';
+  const tries = [
+    async () => {
+      const r = await fetch(
+        `https://api.github.com/repos/${GH.repo}/contents/${path}?ref=main&t=${Date.now()}`,
+        {cache:'no-store', headers:{
+          'Authorization': 'Bearer ' + GH.tok,
+          'Accept': 'application/vnd.github.raw',
+          'X-GitHub-Api-Version': '2022-11-28'}});
+      return r.ok ? parsePayload(await r.text()) : null;
+    },
+    async () => {
+      const r = await fetch(
+        `https://raw.githubusercontent.com/${GH.repo}/main/${path}?t=${Date.now()}`,
+        {cache:'no-store'});
+      return r.ok ? parsePayload(await r.text()) : null;
+    }
+  ];
+  for (const attempt of tries) {
+    try {
+      const d = await attempt();
+      if (!d) continue;
+      DATA = d;
+      if (d.manual) {
+        MANUAL = {...MANUAL, ...d.manual};
+        localStorage.setItem('psx_manual', JSON.stringify(MANUAL));
+      }
+      rebuild(); stamp(); applyMode();
+      return true;
+    } catch (e) { /* try the next source */ }
+  }
+  return false;
 }
 
 function cloudBusy(on, html) {
