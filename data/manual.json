@@ -385,5 +385,32 @@
    "bvps": "Book Value Per Share (TTM)",
    "fcfps": "Free Cash Flow Per Share (TTM)"
   }
+ },
+ "SYS": {
+  "roe": 22.4,
+  "de": 0.0999,
+  "current": 2.73,
+  "quick": 2.73,
+  "icover": 33.85,
+  "bvps": 41.97,
+  "fcfps": 4.26,
+  "sarPayout": 25.43,
+  "sarDivYield": 1.54,
+  "sarEps": 7.86,
+  "sarPe": 16.48,
+  "sarPb": 3.09,
+  "sarNetMargin": 13.4,
+  "sarEvEbitda": 12.2,
+  "_src": "sarmaaya.pk",
+  "_asof": "2026-08-24",
+  "_fields": {
+   "roe": "Return on Average Total Equity (%) (TTM)",
+   "de": "Debt to Equity (%) (TTM)",
+   "current": "Current Ratio (x) (TTM)",
+   "quick": "Quick Ratio (x) (TTM)",
+   "icover": "Interest Coverage (x) (TTM)",
+   "bvps": "Book Value Per Share (TTM)",
+   "fcfps": "Free Cash Flow Per Share (TTM)"
+  }
  }
 }
