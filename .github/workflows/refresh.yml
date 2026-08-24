@@ -1,0 +1,90 @@
+name: Refresh PSX data
+
+# Re-scrapes the exchange on GitHub's machines and republishes the dashboard to
+# GitHub Pages, so the read-only view is current on your phone with your PC off.
+on:
+  schedule:
+    # 12:30 UTC on weekdays = 17:30 PKT, comfortably after the PSX close.
+    # GitHub queues cron jobs, so it may start a little late.
+    - cron: "30 12 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      ratios:
+        description: "Also re-fetch balance-sheet ratios (slow, ~20s per holding)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write           # needed to commit the refreshed dashboard
+
+concurrency:
+  group: psx-refresh        # never let two refreshes run at once
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          # No pip install step: this project uses only the standard library.
+
+      - name: Scrape PSX
+        run: python psx_scraper.py
+
+      # Balance-sheet ratios need a real browser to render the source page.
+      # ubuntu-latest ships Chrome, so there is still nothing to install.
+      - name: Fetch balance-sheet ratios
+        if: inputs.ratios
+        run: |
+          which google-chrome || which chromium-browser || true
+          python psx_ratios.py
+        continue-on-error: true    # a slow render must not fail the whole run
+
+      - name: Rebuild the data file with ratios folded in
+        if: inputs.ratios
+        run: python psx_scraper.py
+
+      - name: Build docs/
+        run: python build_docs.py
+
+      - name: Commit the refreshed dashboard
+        run: |
+          git config user.name  "psx-tracker bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A docs data/psx_data.json data/psx_data.js data/manual.json
+          if git diff --staged --quiet; then
+            echo "No changes - nothing to publish."
+          else
+            git commit -m "Refresh PSX data $(date -u '+%Y-%m-%d %H:%M UTC')"
+            git push
+          fi
+
+      - name: Summary
+        run: |
+          python - <<'PY' >> $GITHUB_STEP_SUMMARY
+          import json
+          d = json.load(open("data/psx_data.json", encoding="utf-8"))
+          stocks = d.get("stocks", {})
+          print("### PSX refresh finished\n")
+          print("- Holdings tracked: **%d**" % len(stocks))
+          print("- With balance-sheet data: **%d**" % len(d.get("manual", {})))
+          print("- Data timestamp: %s" % d.get("generatedAt"))
+          errs = d.get("errors") or {}
+          if errs:
+              print("- Failed: %s" % ", ".join(errs))
+          print("\n| Symbol | Price | P/E | Div yld |")
+          print("|---|---|---|---|")
+          for s, r in sorted(stocks.items()):
+              v = r.get("valuation") or {}
+              fmt = lambda x, suf="": ("%.2f%s" % (x, suf)) if isinstance(x, (int, float)) else "-"
+              print("| %s | %s | %s | %s |" % (s, fmt(v.get("price")), fmt(v.get("pe")),
+                                               fmt(v.get("divYield"), "%")))
+          PY

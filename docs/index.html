@@ -1,0 +1,1198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PSX Holdings Analyzer</title>
+<style>
+:root{
+  --bg:#0d1117; --panel:#151b23; --panel2:#1b2430; --line:#26303d;
+  --tx:#e6edf3; --tx2:#9aa7b4; --tx3:#6b7885;
+  --pos:#3fb950; --neg:#f85149; --warn:#d29922; --acc:#58a6ff; --acc2:#a371f7;
+  --s1:#3fb950; --s2:#7bc96f; --s3:#d29922; --s4:#f85149;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);
+  font:13px/1.5 "Segoe UI",system-ui,-apple-system,sans-serif}
+h1,h2,h3{margin:0;font-weight:600}
+a{color:var(--acc);text-decoration:none}
+.mono{font-family:"Cascadia Mono",Consolas,"SF Mono",monospace}
+
+/* ---------- layout ---------- */
+header{position:sticky;top:0;z-index:50;background:linear-gradient(180deg,#0d1117,#0d1117f0);
+  border-bottom:1px solid var(--line);padding:12px 20px;
+  display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+.brand{font-size:16px;font-weight:700;letter-spacing:.3px}
+.brand span{color:var(--acc)}
+.meta{color:var(--tx3);font-size:11px}
+.spacer{flex:1}
+main{padding:18px 20px 60px;max-width:1600px;margin:0 auto}
+
+button,.btn{background:var(--panel2);color:var(--tx);border:1px solid var(--line);
+  padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-family:inherit}
+button:hover{border-color:var(--acc);color:var(--acc)}
+button.primary{background:var(--acc);color:#04121f;border-color:var(--acc);font-weight:600}
+button.primary:hover{filter:brightness(1.12);color:#04121f}
+button:disabled{opacity:.5;cursor:not-allowed}
+input,select{background:var(--panel2);border:1px solid var(--line);color:var(--tx);
+  padding:6px 10px;border-radius:6px;font-size:12px;font-family:inherit}
+input:focus,select:focus{outline:none;border-color:var(--acc)}
+
+.bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px}
+
+/* ---------- summary strip ---------- */
+.strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px}
+.kpi{padding:12px 14px}
+.kpi .l{color:var(--tx3);font-size:10.5px;text-transform:uppercase;letter-spacing:.6px}
+.kpi .v{font-size:21px;font-weight:600;margin-top:3px}
+.kpi .s{font-size:11px;color:var(--tx2)}
+
+/* ---------- table ---------- */
+.tblwrap{overflow-x:auto;border-radius:10px;border:1px solid var(--line);background:var(--panel)}
+table{border-collapse:collapse;width:100%;min-width:1180px}
+th{position:sticky;top:0;background:var(--panel2);text-align:right;padding:9px 10px;
+  font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--tx2);
+  border-bottom:1px solid var(--line);cursor:pointer;white-space:nowrap;user-select:none}
+th:first-child,th.l{text-align:left}
+th:hover{color:var(--acc)}
+th.sorted{color:var(--acc)}
+td{padding:9px 10px;text-align:right;border-bottom:1px solid #1d242e;white-space:nowrap}
+td.l{text-align:left}
+tbody tr{cursor:pointer}
+tbody tr:hover{background:#1a222d}
+.sym{font-weight:700}
+.co{color:var(--tx3);font-size:11px;max-width:210px;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;display:block}
+.pos{color:var(--pos)} .neg{color:var(--neg)} .dim{color:var(--tx3)}
+
+.score{display:inline-flex;align-items:center;gap:7px;justify-content:flex-end}
+.sbar{width:44px;height:5px;border-radius:3px;background:#232c38;overflow:hidden}
+.sbar i{display:block;height:100%}
+.sv{width:24px;text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
+
+.badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;
+  font-weight:700;letter-spacing:.4px;white-space:nowrap}
+.b1{background:#12331d;color:var(--s1);border:1px solid #1d5c30}
+.b2{background:#1a2f26;color:var(--s2);border:1px solid #2c5a42}
+.b3{background:#33290f;color:var(--s3);border:1px solid #6b5416}
+.b4{background:#3a1618;color:var(--s4);border:1px solid #74282c}
+.flagdot{display:inline-block;background:#3a1618;color:var(--s4);border-radius:10px;
+  padding:1px 6px;font-size:10px;font-weight:700}
+.flagdot.ok{background:#12331d;color:var(--s1)}
+.flagdot.mid{background:#33290f;color:var(--s3)}
+
+/* ---------- detail ---------- */
+#detail{position:fixed;inset:0;background:#04070ad9;z-index:100;display:none;
+  overflow-y:auto;padding:24px}
+#detail.on{display:block}
+.sheet{max-width:1180px;margin:0 auto;background:var(--panel);border:1px solid var(--line);
+  border-radius:12px;overflow:hidden}
+.dhead{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;gap:14px;
+  align-items:flex-start;background:var(--panel2)}
+.dbody{padding:18px 20px}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}
+.card{background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:14px}
+.card h3{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--tx2);
+  margin-bottom:10px}
+.kv{display:flex;justify-content:space-between;gap:12px;padding:4px 0;
+  border-bottom:1px dashed #222b36;font-size:12px}
+.kv:last-child{border:0}
+.kv b{font-weight:600;font-variant-numeric:tabular-nums}
+.pill{display:flex;justify-content:space-between;align-items:center;gap:10px;
+  padding:6px 0;font-size:12px}
+.pbar{flex:1;height:6px;background:#232c38;border-radius:4px;overflow:hidden;margin:0 4px}
+.pbar i{display:block;height:100%}
+.ftable{width:100%;min-width:0;font-size:12px}
+.ftable th{position:static;background:none;border-bottom:1px solid var(--line);cursor:default}
+.ftable td{border-bottom:1px solid #1d242e}
+.flags li{margin:5px 0;font-size:12px;line-height:1.45}
+.flags{margin:0;padding-left:16px}
+.note{font-size:11px;color:var(--tx3);line-height:1.6}
+.verdictbox{padding:12px 14px;border-radius:9px;border:1px solid var(--line);
+  background:var(--panel2);font-size:12.5px;line-height:1.6}
+
+/* ---------- weights ---------- */
+#weights{display:none;margin-bottom:16px;padding:14px 16px}
+#weights.on{display:block}
+.wgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px 22px}
+.wrow{display:flex;align-items:center;gap:10px;font-size:12px}
+.wrow label{flex:1;color:var(--tx2)}
+.wrow input[type=range]{width:96px;accent-color:var(--acc)}
+.wrow b{width:26px;text-align:right;font-variant-numeric:tabular-nums}
+
+/* ---------- add stock ---------- */
+#addbox{display:none;margin-bottom:16px;padding:14px 16px}
+#addbox.on{display:block}
+.results{max-height:230px;overflow-y:auto;margin-top:10px;border:1px solid var(--line);
+  border-radius:7px;display:none}
+.results.on{display:block}
+.ritem{padding:7px 11px;border-bottom:1px solid #1d242e;cursor:pointer;display:flex;
+  gap:10px;align-items:center;font-size:12px}
+.ritem:hover{background:#1a222d}
+.ritem b{min-width:74px}
+.ritem span{color:var(--tx3);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ritem em{color:var(--tx3);font-style:normal;font-size:10.5px}
+
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:200;
+  background:var(--panel2);border:1px solid var(--acc);padding:10px 18px;border-radius:8px;
+  font-size:12.5px;display:none;box-shadow:0 8px 30px #000a}
+.toast.on{display:block}
+.disc{margin-top:22px;padding:12px 14px;border:1px solid #3a2f10;background:#1c1809;
+  border-radius:8px;color:#c9b878;font-size:11.5px;line-height:1.65}
+.tabs{display:flex;gap:4px;margin-bottom:14px;border-bottom:1px solid var(--line)}
+.tab{padding:7px 13px;cursor:pointer;font-size:12px;color:var(--tx2);
+  border-bottom:2px solid transparent}
+.tab.on{color:var(--acc);border-bottom-color:var(--acc)}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">PSX <span>Holdings Analyzer</span></div>
+  <div class="meta" id="stamp">loading…</div>
+  <div class="spacer"></div>
+  <button id="bAdd">+ Add stock</button>
+  <button id="bW">Scoring weights</button>
+  <button id="bRatios">Fetch balance-sheet data</button>
+  <button id="bBs">Balance-sheet CSV</button>
+  <button id="bCsv">Export CSV</button>
+  <button class="primary" id="bRefresh">Refresh data</button>
+</header>
+
+<main>
+  <div class="panel" id="addbox">
+    <div class="bar" style="margin:0 0 8px">
+      <b style="font-size:12px">Add a stock to the watchlist</b>
+      <span class="note">Search any of the PSX-listed symbols by ticker or company name.</span>
+    </div>
+    <input id="q" placeholder="e.g. LUCK, Systems Limited, bank…" style="width:340px" autocomplete="off">
+    <button class="primary" id="bAddGo">Add &amp; scrape</button>
+    <div class="results" id="qres"></div>
+  </div>
+
+  <div class="panel" id="bsbox" style="display:none;margin-bottom:16px;padding:14px 16px">
+    <div class="bar" style="margin:0 0 10px">
+      <b style="font-size:12px">Balance-sheet data — bulk fill</b>
+      <span class="note">The one thing PSX does not publish. Fill this once per results season.</span>
+    </div>
+    <div class="note" style="margin-bottom:10px">
+      Download the template, open it in Excel, fill the columns from each company's annual
+      report or your data provider, then paste the whole sheet back in below and import.
+      Leave a cell blank if you do not have it — blanks are skipped, never scored as zero.
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+      <button id="bBsTpl">↓ Download template (with current values)</button>
+      <button class="primary" id="bBsImp">↑ Import pasted data</button>
+      <button id="bBsWipe">Clear all</button>
+      <span class="note" id="bsBulkMsg"></span>
+    </div>
+    <textarea id="bsPaste" spellcheck="false" placeholder="Paste CSV or tab-separated rows here…
+symbol,roe,de,current,icover,ocfni,bvps
+EFERT,32.5,0.45,1.30,8.2,1.10,55.4"
+      style="width:100%;height:150px;background:var(--panel2);border:1px solid var(--line);
+      color:var(--tx);border-radius:6px;padding:9px;font-family:'Cascadia Mono',Consolas,monospace;
+      font-size:12px;resize:vertical"></textarea>
+  </div>
+
+  <div class="panel" id="weights">
+    <div class="bar" style="margin:0 0 10px">
+      <b style="font-size:12px">Scoring weights</b>
+      <span class="note">Change what matters to you — every score and verdict recalculates instantly.</span>
+      <div class="spacer"></div>
+      <button id="bWReset">Reset defaults</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:20px">
+      <div>
+        <h3 style="font-size:11px;color:var(--tx2);margin-bottom:8px">LONG-TERM (fundamentals)</h3>
+        <div class="wgrid" id="wLT"></div>
+      </div>
+      <div>
+        <h3 style="font-size:11px;color:var(--tx2);margin-bottom:8px">SHORT-TERM (price &amp; liquidity)</h3>
+        <div class="wgrid" id="wST"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="strip" id="strip"></div>
+
+  <div class="bar">
+    <input id="filter" placeholder="Filter symbol / company / sector…" style="width:250px">
+    <select id="fverdict">
+      <option value="">All long-term grades</option>
+      <option>STRONG</option><option>SOLID</option><option>MIXED</option><option>WEAK</option>
+    </select>
+    <div class="spacer"></div>
+    <span class="note" id="count"></span>
+  </div>
+
+  <div class="tblwrap"><table id="tbl">
+    <thead><tr></tr></thead><tbody></tbody>
+  </table></div>
+
+  <div class="disc">
+    <b>Read this first.</b> This tool is a screening and research aid, not investment advice, and it is
+    not a recommendation to buy, sell or hold anything. Scores are arithmetic on published PSX data
+    using weights you control — they are a starting point for your own reading of the annual report,
+    not a substitute for it. PSX exposes only four years of Sales / Profit / EPS, so balance-sheet risk
+    (debt, gearing, ROE, cash flow) is <b>not</b> captured here and must be checked in the company's own
+    accounts before any decision. Data is supplied by PSX / Capital Stake and may be delayed or restated.
+  </div>
+</main>
+
+<div id="detail"><div class="sheet" id="sheet"></div></div>
+<div class="toast" id="toast"></div>
+
+<script src="data/psx_data.js" onerror="void 0"></script>
+<script>
+/* ======================================================================
+   PSX Holdings Analyzer — scoring engine + UI
+   ====================================================================== */
+
+/* ---------- helpers ---------- */
+const $  = s => document.querySelector(s);
+const nn = v => (v === null || v === undefined || Number.isNaN(v)) ? null : v;
+const isN = v => typeof v === 'number' && isFinite(v);
+
+function fmt(v, d = 2) {
+  if (!isN(v)) return '<span class="dim">–</span>';
+  return v.toLocaleString('en-US', {minimumFractionDigits: d, maximumFractionDigits: d});
+}
+function pct(v, d = 1) {
+  if (!isN(v)) return '<span class="dim">–</span>';
+  const c = v > 0 ? 'pos' : v < 0 ? 'neg' : '';
+  return `<span class="${c}">${v > 0 ? '+' : ''}${v.toFixed(d)}%</span>`;
+}
+function big(v) {
+  if (!isN(v)) return '–';
+  const a = Math.abs(v);
+  if (a >= 1e12) return (v / 1e12).toFixed(2) + 'T';
+  if (a >= 1e9)  return (v / 1e9 ).toFixed(2) + 'B';
+  if (a >= 1e6)  return (v / 1e6 ).toFixed(2) + 'M';
+  if (a >= 1e3)  return (v / 1e3 ).toFixed(1) + 'K';
+  return v.toFixed(0);
+}
+/* piecewise-linear scorer: pts = [[x,score],…] ascending in x */
+function curve(v, pts) {
+  if (!isN(v)) return null;
+  if (v <= pts[0][0]) return pts[0][1];
+  for (let i = 1; i < pts.length; i++) {
+    if (v <= pts[i][0]) {
+      const [x0, y0] = pts[i - 1], [x1, y1] = pts[i];
+      return y0 + (y1 - y0) * (v - x0) / (x1 - x0);
+    }
+  }
+  return pts[pts.length - 1][1];
+}
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+/* average of non-null components, each 0-100 */
+function blend(parts) {
+  const v = parts.filter(isN);
+  return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
+}
+
+/* ======================================================================
+   SCORING
+   ====================================================================== */
+const DEFAULT_W = {
+  lt: { growth:25, profitability:20, revenue:10, valuation:20, income:15,
+        quality:10, balance:20 },
+  st: { trend:30, momentum:25, position:15, volatility:15, liquidity:15 }
+};
+const W_LABEL = {
+  growth:'Earnings growth', profitability:'Profitability', revenue:'Revenue growth',
+  valuation:'Valuation', income:'Dividend & payout', quality:'Size / stability',
+  balance:'Balance sheet ✎',
+  trend:'Trend (MA50/MA200)', momentum:'Momentum 1-3-6M', position:'52-week position',
+  volatility:'Volatility (low=good)', liquidity:'Liquidity'
+};
+
+/* Balance-sheet fields PSX does not publish - entered by hand from the annual
+   report or a data provider. Each carries the direction and scoring curve. */
+const BS_FIELDS = [
+  {k:'roe',      t:'Return on equity',        u:'%',  hint:'15%+ is strong',
+   curve:[[-10,0],[0,12],[5,30],[10,48],[15,68],[20,82],[30,95],[45,100]]},
+  {k:'de',       t:'Debt to equity',          u:'×',  hint:'lower is safer; 0.5 or less is conservative', lev:1,
+   curve:[[0,100],[0.3,92],[0.6,78],[1,60],[1.5,42],[2.5,20],[4,5],[6,0]]},
+  {k:'current',  t:'Current ratio',           u:'×',  hint:'1.5+ covers short-term bills', lev:1,
+   curve:[[0.4,0],[0.8,25],[1,45],[1.3,65],[1.8,85],[2.5,100],[5,100]]},
+  {k:'quick',    t:'Quick ratio',             u:'×',  hint:'covers bills without relying on selling inventory', lev:1,
+   curve:[[0.2,0],[0.5,25],[0.8,50],[1,70],[1.5,90],[2.5,100]]},
+  {k:'icover',   t:'Interest cover',          u:'×',  hint:'3+ means profit comfortably pays the interest', lev:1,
+   curve:[[0,0],[1,18],[2,38],[3,58],[5,78],[8,92],[15,100]]},
+  {k:'ocfni',    t:'Operating cash flow / net income', u:'×',
+   hint:'1.0 means profit is arriving as real cash',
+   curve:[[-0.5,0],[0,10],[0.4,32],[0.7,55],[1,80],[1.3,95],[2,100]]},
+  {k:'fcfps',    t:'Free cash flow per share', u:'Rs',
+   hint:'scored as a yield against the share price; negative means the business consumes cash', yield:1,
+   curve:[[-12,0],[-5,15],[0,38],[3,58],[6,76],[10,92],[16,100]]},
+  {k:'bvps',     t:'Book value per share',    u:'Rs', hint:'used to compute price-to-book', nosc:1}
+];
+
+/* Banks, insurers, investment companies and REITs are leveraged by design:
+   a 2.7x debt-to-equity is normal for a bank and meaningless for a cement
+   plant. Gearing and liquidity ratios are excluded for them rather than
+   scored as if the business were failing. */
+const LEVERAGED = /BANK|INSURANCE|INV\.|INVESTMENT|SECURITIES|MODARABA|LEASING|REAL ESTATE INVESTMENT/i;
+const isLeveraged = sec => LEVERAGED.test(sec || '');
+
+function bsScore(m, price, sector) {
+  if (!m) return {score:null, parts:{}, pb:null, skipped:[]};
+  const lev = isLeveraged(sector), parts = {}, skipped = [];
+  BS_FIELDS.forEach(f => {
+    if (f.nosc) return;
+    const v = parseFloat(m[f.k]);
+    if (!isN(v)) return;
+    if (f.lev && lev) { skipped.push(f.t); return; }   // structural, not a warning
+    parts[f.k] = curve(f.yield ? (isN(price) && price > 0 ? v / price * 100 : NaN) : v, f.curve);
+    if (!isN(parts[f.k])) delete parts[f.k];
+  });
+  const bv = parseFloat(m.bvps);
+  let pb = null;
+  if (isN(bv) && bv > 0 && isN(price)) {
+    pb = price / bv;
+    parts.pb = curve(pb, [[0.3,100],[0.7,88],[1,72],[1.5,55],[2.5,35],[4,16],[8,0]]);
+  }
+  const vals = Object.values(parts);
+  return {score: vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : null, parts, pb, skipped};
+}
+let W = JSON.parse(localStorage.getItem('psx_w') || 'null') || structuredClone(DEFAULT_W);
+
+/* ---------- long-term pillars ---------- */
+function ltPillars(s) {
+  const f = s.fundamentals || {}, v = s.valuation || {}, t = s.technicals || {},
+        ss = s.sectorStats || {};
+  const P = {};
+
+  // 1. Earnings growth — CAGR, plus consistency of the trend
+  const g = nn(f.growthCAGR);
+  const gScore = curve(g, [[-20,0],[0,15],[5,35],[10,52],[15,66],[20,78],[30,92],[45,100]]);
+  const yrs = f.epsYears || 0;
+  const consist = yrs > 1 ? curve(f.epsUpYears / (yrs - 1) * 100, [[0,10],[50,50],[100,100]]) : null;
+  const recent = nn((f.epsGrowth || [])[0]);
+  const recentScore = curve(recent, [[-40,0],[-15,25],[0,45],[10,62],[25,80],[50,100]]);
+  P.growth = blend([gScore, gScore, consist, recentScore]);   // CAGR double-weighted
+
+  // 2. Profitability — level, direction, stability.
+  //    Margins >60% are usually an accounting artefact (associate income, fair-value
+  //    gains booked below a small revenue line), so the level scale saturates.
+  const npm = nn(f.npMarginLatest);
+  const lvl = curve(npm, [[-10,0],[0,18],[3,35],[6,50],[10,62],[15,73],[25,86],[40,100]]);
+  const trend = curve(nn(f.npMarginTrend), [[-10,0],[-3,28],[0,50],[3,72],[8,92],[15,100]]);
+  const stab = curve(nn(f.npMarginStdev), [[1,100],[3,82],[6,62],[10,42],[20,18],[40,0]]);
+  P.profitability = blend([lvl, lvl, trend, stab]);
+
+  // 3. Revenue growth — Pakistan inflation means nominal growth must clear a real hurdle
+  P.revenue = curve(nn(f.salesCAGR), [[-15,0],[0,18],[6,35],[12,55],[18,72],[25,88],[40,100]]);
+
+  // 4. Valuation — absolute P/E, P/E vs sector peers, growth-adjusted (PEG)
+  const pe = nn(v.pe);
+  const abs = curve(pe, [[3,100],[6,86],[9,72],[12,58],[16,44],[22,28],[35,12],[60,0]]);
+  let rel = null;
+  if (isN(pe) && isN(ss.medianPE) && ss.medianPE > 0)
+    rel = curve(pe / ss.medianPE, [[0.4,100],[0.7,82],[1,58],[1.3,38],[1.8,18],[3,0]]);
+  const peg = nn(v.pegCalc);
+  const pegS = curve(peg, [[0.3,100],[0.6,86],[1,68],[1.5,46],[2.5,22],[4,0]]);
+  P.valuation = blend([abs, rel, pegS]);
+
+  // 5. Dividend & payout sustainability — a yield paid out of borrowings is not income
+  const dy = nn(v.divYield);
+  const dyS = curve(dy, [[0,8],[1,25],[3,50],[5,70],[7,85],[10,95],[14,100]]);
+  const pr = nn(v.payoutRatioPct);
+  let prS = null;
+  if (isN(pr)) prS = pr < 0 ? 0
+      : curve(pr, [[0,35],[15,60],[30,82],[55,100],[75,88],[95,58],[110,28],[150,5],[250,0]]);
+  P.income = blend([dyS, dyS, prS]);
+
+  // 6. Size, float, liquidity, price stability — survivability & exitability
+  const mc = curve(nn(v.marketCap), [[1e9,10],[1e10,40],[5e10,62],[1.5e11,78],[5e11,92],[1e12,100]]);
+  const ff = curve(nn(s.freeFloatPct), [[5,15],[15,40],[25,60],[40,80],[60,100]]);
+  const vol = curve(nn(t.volAnnualPct), [[15,100],[25,82],[35,62],[45,42],[60,20],[85,0]]);
+  const pos = (f.epsYears ? f.epsPositiveYears / f.epsYears * 100 : null);
+  const posS = curve(pos, [[0,0],[50,35],[75,70],[100,100]]);
+  P.quality = blend([mc, ff, vol, posS]);
+
+  // 7. Balance sheet — hand-entered. Stays null (and is skipped, not counted as
+  //    zero) until figures exist, so an unfilled stock is never falsely punished.
+  P.balance = s._bs ? s._bs.score : null;
+
+  return P;
+}
+
+/* ---------- short-term pillars ---------- */
+function stPillars(s) {
+  const t = s.technicals || {}, P = {};
+  const last = nn(t.last), ma50 = nn(t.ma50), ma200 = nn(t.ma200);
+
+  let a = null, b = null;
+  if (isN(last) && isN(ma50))  a = curve((last / ma50 - 1) * 100,  [[-15,0],[-6,22],[0,50],[4,72],[10,90],[20,100]]);
+  if (isN(ma50) && isN(ma200)) b = curve((ma50 / ma200 - 1) * 100, [[-20,0],[-7,22],[0,50],[5,75],[15,95],[30,100]]);
+  P.trend = blend([a, b]);
+
+  const m1 = curve(nn(t.ret1M), [[-20,0],[-8,25],[0,48],[6,68],[15,88],[30,100]]);
+  const m3 = curve(nn(t.ret3M), [[-30,0],[-12,25],[0,48],[10,70],[25,90],[50,100]]);
+  const m6 = curve(nn(t.ret6M), [[-40,0],[-15,25],[0,48],[15,70],[35,90],[70,100]]);
+  P.momentum = blend([m1, m3, m6]);
+
+  // Best risk/reward sits mid-range: near the high is extended, near the low may still be falling
+  P.position = curve(nn(t.range52Pos),
+    [[0,25],[10,40],[25,62],[45,85],[65,95],[80,80],[92,52],[100,35]]);
+
+  P.volatility = curve(nn(t.volAnnualPct), [[15,100],[25,85],[35,65],[45,45],[60,22],[85,0]]);
+
+  const to = nn(t.turnover30d);
+  P.liquidity = isN(to) ? curve(Math.log10(Math.max(to, 1)),
+    [[5,0],[6,25],[7,55],[8,80],[9,95],[10,100]]) : null;
+  return P;
+}
+
+function weighted(P, w) {
+  let num = 0, den = 0;
+  for (const k in w) if (isN(P[k])) { num += P[k] * w[k]; den += w[k]; }
+  return den ? num / den : null;
+}
+
+/* ---------- risk flags ---------- */
+function flags(s) {
+  const f = s.fundamentals || {}, v = s.valuation || {}, t = s.technicals || {}, out = [];
+  const add = (sev, msg) => out.push({sev, msg});
+
+  const eg = nn((f.epsGrowth || [])[0]);
+  if (isN(eg) && eg < 0) add(eg < -25 ? 'high' : 'mid',
+    `Latest full-year EPS fell ${eg.toFixed(1)}% — earnings are contracting, not growing.`);
+  const eps = (f.eps || []).filter(isN);
+  const losses = eps.filter(e => e < 0).length;
+  if (losses) add('high', `Loss-making in ${losses} of the last ${eps.length} reported years.`);
+  if (isN(f.npMarginTrend) && f.npMarginTrend < -3)
+    add('mid', `Net margin is ${Math.abs(f.npMarginTrend).toFixed(1)}pp below its own 3-year average — margin compression.`);
+  if (isN(f.salesCAGR) && f.salesCAGR < 0)
+    add('mid', `Revenue is shrinking (${f.salesCAGR.toFixed(1)}% CAGR) — growth must come from margins alone.`);
+  if (isN(v.payoutRatioPct) && v.payoutRatioPct > 100)
+    add('high', `Dividend is ${v.payoutRatioPct.toFixed(0)}% of earnings — paying out more than it earns is not sustainable from profit alone.`);
+  if (isN(v.pe) && v.pe > 35)
+    add('mid', `P/E of ${v.pe.toFixed(1)} prices in strong future growth; any disappointment falls hard.`);
+  if (isN(v.divYield) && v.divYield === 0)
+    add('low', 'PSX reports no dividend yield. Either it pays nothing — so the entire return depends on the price rising — or PSX simply has no payout record for it (this happens with REITs and some newer listings). Check the payouts tab on the PSX page before treating it as a non-payer.');
+  if (isN(t.ma200) && isN(t.last) && t.last < t.ma200)
+    add('mid', 'Trading below its 200-day average — the long-term price trend is down.');
+  if (isN(t.maxDrawdown1Y) && t.maxDrawdown1Y < -35)
+    add('mid', `Fell ${Math.abs(t.maxDrawdown1Y).toFixed(0)}% peak-to-trough in the last year — could you hold through that again?`);
+  if (isN(t.volAnnualPct) && t.volAnnualPct > 45)
+    add('mid', `High volatility (${t.volAnnualPct.toFixed(0)}% annualised) — large position sizes will be uncomfortable.`);
+  if (isN(t.turnover30d) && t.turnover30d < 5e6)
+    add('high', `Thin trading (~Rs ${big(t.turnover30d)}/day) — exiting a large holding may move the price against you.`);
+  if (f.shareCountEvent)
+    add('low', `Share count changed (split / bonus / restructuring), so per-share history is not comparable. Growth here is measured on ${f.growthBasis}.`);
+  // Balance-sheet dangers — the ones that actually sink companies
+  const m = s._m;
+  if (m) {
+    const de = parseFloat(m.de), ic = parseFloat(m.icover), cr = parseFloat(m.current),
+          oc = parseFloat(m.ocfni), roe = parseFloat(m.roe), fcf = parseFloat(m.fcfps),
+          px = s.valuation?.price, lev = isLeveraged(s.sector);
+    if (!lev) {
+      if (isN(de) && de > 2)
+        add(de > 3 ? 'high' : 'mid', `Debt-to-equity of ${de.toFixed(2)}× — heavily geared. In a downturn the lenders are paid before you are.`);
+      if (isN(ic) && ic < 3)
+        add(ic < 1.5 ? 'high' : 'mid', `Interest cover of only ${ic.toFixed(2)}× — profit barely covers the interest bill. This plus falling cash flow is the classic failure pattern.`);
+      if (isN(cr) && cr < 1)
+        add('high', `Current ratio ${cr.toFixed(2)}× — short-term liabilities exceed short-term assets, so it depends on rolling over financing.`);
+    } else if (isN(de)) {
+      add('low', `Debt-to-equity is ${de.toFixed(2)}×, but this is a ${s.sector.toLowerCase()} business where leverage is structural, not a distress signal. Gearing and liquidity ratios are excluded from its balance-sheet score.`);
+    }
+    if (isN(oc) && oc < 0.5)
+      add(oc < 0 ? 'high' : 'mid', `Operating cash flow is only ${oc.toFixed(2)}× net income — reported profit is not turning into cash. Check receivables and inventory.`);
+    if (isN(fcf) && isN(px) && px > 0) {
+      const fy = fcf / px * 100;
+      if (fcf < 0)
+        add('mid', `Free cash flow is negative (Rs ${fcf.toFixed(2)}/share) — after capital spending the business consumed cash rather than generating it. Fine if it is funding expansion, a problem if it is routine.`);
+      else if (fy < 2)
+        add('low', `Free cash flow yield is only ${fy.toFixed(1)}% — little spare cash after capital spending.`);
+    }
+    if (isN(roe) && roe < 8)
+      add('mid', `Return on equity of ${roe.toFixed(1)}% — capital is not being used efficiently.`);
+  } else {
+    add('low', 'No balance-sheet figures entered, so debt, interest cover, cash-flow quality and ROE are absent from this score. Add them from the annual report — this is the biggest blind spot in the model.');
+  }
+  (s.dataWarnings || []).forEach(w => add('high', 'Data: ' + w));
+  if (isN(f.npMarginLatest) && f.npMarginLatest > 60)
+    add('low', 'Reported net margin exceeds 60% — profit likely includes associate income or fair-value gains rather than trading profit. Read the notes.');
+  return out;
+}
+
+/* ---------- verdicts ---------- */
+function grade(sc) {
+  if (!isN(sc)) return {k:'MIXED', cls:'b3'};
+  if (sc >= 70) return {k:'STRONG', cls:'b1'};
+  if (sc >= 55) return {k:'SOLID',  cls:'b2'};
+  if (sc >= 40) return {k:'MIXED',  cls:'b3'};
+  return {k:'WEAK', cls:'b4'};
+}
+function stance(lt, st) {
+  const L = isN(lt) && lt >= 55, H = isN(st) && st >= 55, D = isN(st) && st < 40;
+  if (L && H)  return {t:'Long-term candidate, trend agrees',
+    d:'Fundamentals score well and the price trend is confirming them. This is the combination that suits a multi-year hold.'};
+  if (L && D)  return {t:'Fundamentals firm, price weak',
+    d:'The business scores well but the market is marking it down. Either the market knows something the four-year numbers do not yet show, or it is an accumulation window. Find out which before adding.'};
+  if (L)       return {t:'Long-term candidate, trend neutral',
+    d:'Fundamentals support a long hold; the price is going sideways. Time, not timing, is the thesis here.'};
+  if (H)       return {t:'Momentum only — weak fundamentals',
+    d:'The price is trending but the underlying numbers do not support a long hold. This has the character of a trade, and trades need an exit rule set in advance.'};
+  if (D)       return {t:'Weak on both fundamentals and trend',
+    d:'Neither the business numbers nor the price action support holding. If it is already held, the question is what specifically has to change to justify keeping it.'};
+  return {t:'Mixed picture',
+    d:'No clear signal either way. Sizing small or waiting for the next results is the low-regret option.'};
+}
+
+/* ---------- assemble ---------- */
+function analyse(s) {
+  s = {...s, _m: MANUAL[s.symbol] || null};
+  s._bs = bsScore(s._m, s.valuation?.price, s.sector);
+  const lp = ltPillars(s), sp = stPillars(s);
+  const lt = weighted(lp, W.lt), st = weighted(sp, W.st);
+  const fl = flags(s);
+  const high = fl.filter(f => f.sev === 'high').length;
+  return {
+    ...s, ltP:lp, stP:sp, lt, st, flags:fl, highFlags:high,
+    grade:grade(lt), stance:stance(lt, st)
+  };
+}
+
+/* ======================================================================
+   DATA
+   ====================================================================== */
+let DATA = null, ROWS = [], SORT = {k:'lt', dir:-1};
+
+/* Hand-entered balance-sheet data. Server-backed when running live so it is
+   shared across browsers; localStorage otherwise. */
+let MANUAL = JSON.parse(localStorage.getItem('psx_manual') || '{}');
+
+async function saveManual(sym, fields) {
+  const rec = {...(MANUAL[sym] || {})};
+  for (const k in fields) {
+    if (fields[k] === null) delete rec[k]; else rec[k] = fields[k];
+  }
+  if (Object.keys(rec).length) MANUAL[sym] = rec; else delete MANUAL[sym];
+  localStorage.setItem('psx_manual', JSON.stringify(MANUAL));
+  if (SERVER()) {
+    try {
+      const r = await fetch('/api/manual', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({[sym]: fields})
+      });
+      if (r.ok) MANUAL = await r.json();
+    } catch (e) { toast('Saved locally; server write failed', 4000); }
+  }
+  localStorage.setItem('psx_manual', JSON.stringify(MANUAL));
+}
+
+/* Live mode means "the local server is actually answering", not "served over
+   http". On GitHub Pages the protocol is https but there is no API, so the
+   protocol test would wrongly enable Refresh / Add / Fetch and every click
+   would fail. Probe once and remember. */
+let HAS_API = false;
+const SERVER = () => HAS_API;
+
+async function loadData() {
+  try {
+    const r = await fetch('api/data', {cache:'no-store'});
+    if (r.ok && (r.headers.get('content-type') || '').includes('json')) {
+      HAS_API = true;
+      return await r.json();
+    }
+  } catch (e) { /* static hosting - fall through */ }
+  if (window.PSX_DATA) return window.PSX_DATA;
+  throw new Error('No data found. Run  python psx_scraper.py  to build data/psx_data.js');
+}
+
+function rebuild() {
+  ROWS = Object.values(DATA.stocks).map(analyse);
+  sortRows(); renderStrip(); renderTable();
+}
+
+/* ======================================================================
+   RENDER
+   ====================================================================== */
+const COLS = [
+  {k:'symbol', t:'Symbol', l:1},
+  {k:'sector', t:'Sector', l:1},
+  {k:'price',  t:'Price'},
+  {k:'change1Y', t:'1Y %'},
+  {k:'pe', t:'P/E'},
+  {k:'peRel', t:'P/E vs sector'},
+  {k:'divYield', t:'Div yld'},
+  {k:'payout', t:'Payout'},
+  {k:'growth', t:'Profit CAGR'},
+  {k:'npm', t:'Net margin'},
+  {k:'bs', t:'B/Sheet'},
+  {k:'lt', t:'Long-term'},
+  {k:'st', t:'Short-term'},
+  {k:'grade', t:'Grade', l:1},
+  {k:'risk', t:'Risks'}
+];
+const val = (r, k) => ({
+  symbol:r.symbol, sector:r.sector, price:r.valuation?.price, change1Y:r.change1Y,
+  pe:r.valuation?.pe,
+  peRel:(isN(r.valuation?.pe) && isN(r.sectorStats?.medianPE) && r.sectorStats.medianPE > 0)
+        ? r.valuation.pe / r.sectorStats.medianPE : null,
+  divYield:r.valuation?.divYield, payout:r.valuation?.payoutRatioPct,
+  growth:r.fundamentals?.growthCAGR, npm:r.fundamentals?.npMarginLatest,
+  bs:r.ltP?.balance, lt:r.lt, st:r.st, grade:r.grade.k, risk:r.flags.length
+}[k]);
+
+function sortRows() {
+  const {k, dir} = SORT;
+  ROWS.sort((a, b) => {
+    let x = val(a, k), y = val(b, k);
+    if (typeof x === 'string' || typeof y === 'string')
+      return String(x ?? '').localeCompare(String(y ?? '')) * dir;
+    x = isN(x) ? x : -Infinity; y = isN(y) ? y : -Infinity;
+    return (x - y) * dir;
+  });
+}
+function scoreCell(v) {
+  if (!isN(v)) return '<span class="dim">–</span>';
+  const c = v >= 70 ? 'var(--s1)' : v >= 55 ? 'var(--s2)' : v >= 40 ? 'var(--s3)' : 'var(--s4)';
+  return `<span class="score"><span class="sbar"><i style="width:${v}%;background:${c}"></i></span>
+          <span class="sv" style="color:${c}">${v.toFixed(0)}</span></span>`;
+}
+
+function renderTable() {
+  const q = $('#filter').value.trim().toLowerCase();
+  const fv = $('#fverdict').value;
+  const rows = ROWS.filter(r =>
+    (!q || (r.symbol + ' ' + r.name + ' ' + r.sector).toLowerCase().includes(q)) &&
+    (!fv || r.grade.k === fv));
+
+  $('#tbl thead tr').innerHTML = COLS.map(c =>
+    `<th class="${c.l ? 'l' : ''} ${SORT.k === c.k ? 'sorted' : ''}" data-k="${c.k}">${c.t}${
+      SORT.k === c.k ? (SORT.dir < 0 ? ' ↓' : ' ↑') : ''}</th>`).join('');
+
+  $('#tbl tbody').innerHTML = rows.map(r => {
+    const v = r.valuation || {}, f = r.fundamentals || {};
+    const pr = v.payoutRatioPct;
+    const rel = val(r, 'peRel');
+    const hi = r.flags.filter(x => x.sev === 'high').length;
+    const cls = hi ? '' : r.flags.length > 2 ? 'mid' : 'ok';
+    return `<tr data-s="${r.symbol}">
+      <td class="l"><span class="sym">${r.symbol}</span><span class="co">${r.name}</span></td>
+      <td class="l"><span class="co" style="max-width:150px">${r.sector || '–'}</span></td>
+      <td class="mono">${fmt(v.price)}</td>
+      <td class="mono">${pct(r.change1Y)}</td>
+      <td class="mono">${isN(v.pe) ? (v.pe > 999 ? '&gt;999' : v.pe.toFixed(1)) : '<span class="dim">n/m</span>'}</td>
+      <td class="mono">${isN(rel) ? (rel <= 1
+          ? `<span class="pos">${rel.toFixed(2)}×</span>`
+          : `<span class="neg">${rel.toFixed(2)}×</span>`) : '<span class="dim">–</span>'}</td>
+      <td class="mono">${isN(v.divYield) ? (v.divYield > 0
+          ? `<span class="pos">${v.divYield.toFixed(2)}%</span>` : '<span class="dim">0%</span>')
+          : '<span class="dim">–</span>'}</td>
+      <td class="mono">${isN(pr) ? (pr > 100
+          ? `<span class="neg">${pr.toFixed(0)}%</span>` : `${pr.toFixed(0)}%`) : '<span class="dim">–</span>'}</td>
+      <td class="mono">${pct(f.growthCAGR)}</td>
+      <td class="mono">${isN(f.npMarginLatest) ? f.npMarginLatest.toFixed(1) + '%' : '<span class="dim">–</span>'}</td>
+      <td>${isN(r.ltP.balance) ? scoreCell(r.ltP.balance)
+            : '<span class="flagdot mid" title="No balance-sheet data entered">add</span>'}</td>
+      <td>${scoreCell(r.lt)}</td>
+      <td>${scoreCell(r.st)}</td>
+      <td class="l"><span class="badge ${r.grade.cls}">${r.grade.k}</span></td>
+      <td><span class="flagdot ${cls}">${r.flags.length}</span></td>
+    </tr>`;
+  }).join('');
+
+  $('#count').textContent = `${rows.length} of ${ROWS.length} holdings`;
+  $('#tbl thead').onclick = e => {
+    const k = e.target.closest('th')?.dataset.k; if (!k) return;
+    SORT = (SORT.k === k) ? {k, dir:-SORT.dir} : {k, dir:-1};
+    sortRows(); renderTable();
+  };
+  $('#tbl tbody').onclick = e => {
+    const s = e.target.closest('tr')?.dataset.s; if (s) openDetail(s);
+  };
+}
+
+function renderStrip() {
+  const n = ROWS.length;
+  const avg = k => { const a = ROWS.map(r => r[k]).filter(isN); return a.length ? a.reduce((x,y)=>x+y,0)/a.length : null; };
+  const cnt = g => ROWS.filter(r => r.grade.k === g).length;
+  const dys = ROWS.map(r => r.valuation?.divYield).filter(isN);
+  const wDY = dys.length ? dys.reduce((a,b)=>a+b,0)/dys.length : null;
+  const risky = ROWS.filter(r => r.highFlags > 0).length;
+  const items = [
+    ['Holdings tracked', n, `${new Set(ROWS.map(r=>r.sector)).size} sectors`],
+    ['Avg long-term score', isN(avg('lt')) ? avg('lt').toFixed(0) : '–', `${cnt('STRONG')} strong · ${cnt('SOLID')} solid`],
+    ['Avg short-term score', isN(avg('st')) ? avg('st').toFixed(0) : '–', 'price trend & liquidity'],
+    ['Avg dividend yield', isN(wDY) ? wDY.toFixed(2)+'%' : '–', `${ROWS.filter(r=>r.valuation?.divYield>0).length} of ${n} pay a dividend`],
+    ['Need review', cnt('MIXED')+cnt('WEAK'), 'mixed or weak grade'],
+    ['Serious risk flags', risky, `${risky} holding${risky===1?'':'s'} with a high-severity flag`]
+  ];
+  $('#strip').innerHTML = items.map(([l,v,s]) =>
+    `<div class="panel kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join('');
+}
+
+/* ---------- sparkline ---------- */
+function spark(arr, w = 460, h = 92) {
+  if (!arr || arr.length < 2) return '';
+  const mn = Math.min(...arr), mx = Math.max(...arr), rg = (mx - mn) || 1;
+  const pts = arr.map((v, i) =>
+    [(i / (arr.length - 1)) * w, h - ((v - mn) / rg) * (h - 8) - 4]);
+  const up = arr[arr.length - 1] >= arr[0];
+  const col = up ? 'var(--pos)' : 'var(--neg)';
+  const d = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:${h}px" preserveAspectRatio="none">
+    <path d="${d} L${w},${h} L0,${h} Z" fill="${col}" opacity=".08"/>
+    <path d="${d}" fill="none" stroke="${col}" stroke-width="1.6"/></svg>`;
+}
+
+/* ---------- detail sheet ---------- */
+function pillRow(label, v, w) {
+  const c = !isN(v) ? 'var(--tx3)' : v >= 70 ? 'var(--s1)' : v >= 55 ? 'var(--s2)' : v >= 40 ? 'var(--s3)' : 'var(--s4)';
+  return `<div class="pill"><span style="min-width:132px;color:var(--tx2)">${label}</span>
+    <span class="pbar"><i style="width:${isN(v)?v:0}%;background:${c}"></i></span>
+    <b style="width:30px;text-align:right;color:${c}">${isN(v)?v.toFixed(0):'–'}</b>
+    <span style="width:30px;text-align:right;color:var(--tx3);font-size:11px">${w}%</span></div>`;
+}
+function ftable(tbl, title) {
+  if (!tbl || !tbl.rows) return '';
+  const per = tbl.periods || [];
+  const head = per.map(p => `<th style="text-align:right">${p}</th>`).join('');
+  const body = Object.entries(tbl.rows).map(([k, vals]) =>
+    `<tr><td class="l" style="color:var(--tx2)">${k}</td>` +
+    vals.map(v => `<td class="mono">${isN(v) ? (Math.abs(v) >= 1000 ? big(v) : v.toFixed(2)) : '–'}</td>`).join('') +
+    '</tr>').join('');
+  return `<div class="card"><h3>${title}</h3>
+    <div style="overflow-x:auto"><table class="ftable"><thead><tr><th class="l"></th>${head}</tr></thead>
+    <tbody>${body}</tbody></table></div></div>`;
+}
+
+function openDetail(sym) {
+  const r = ROWS.find(x => x.symbol === sym); if (!r) return;
+  const f = r.fundamentals || {}, v = r.valuation || {}, t = r.technicals || {}, ss = r.sectorStats || {};
+  const kv = (l, val) => `<div class="kv"><span style="color:var(--tx2)">${l}</span><b>${val}</b></div>`;
+  const sevTxt = {high:'🔴', mid:'🟠', low:'🟡'};
+
+  $('#sheet').innerHTML = `
+  <div class="dhead">
+    <div style="flex:1">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <h1 style="font-size:20px">${r.symbol}</h1>
+        <span class="badge ${r.grade.cls}">${r.grade.k}</span>
+        <span class="note">${r.sector}</span>
+      </div>
+      <div style="color:var(--tx2);margin-top:3px">${r.name}</div>
+      <div style="margin-top:8px;font-size:22px;font-weight:600" class="mono">
+        Rs ${fmt(v.price)} <span style="font-size:13px">${pct(r.changePct)}</span>
+        <span style="font-size:12px;color:var(--tx3)">· 1Y ${pct(r.change1Y)}</span>
+      </div>
+    </div>
+    <button onclick="closeDetail()">✕ Close</button>
+  </div>
+  <div class="dbody">
+
+    ${(r.dataWarnings||[]).length ? `<div class="verdictbox" style="margin-bottom:14px;
+      border-color:#74282c;background:#2a1416;color:#f0a5a2">
+      <b>Incomplete data</b><div style="margin-top:5px">${r.dataWarnings.join('<br>')}</div></div>` : ''}
+
+    <div class="verdictbox" style="margin-bottom:16px">
+      <b style="color:var(--acc)">${r.stance.t}</b>
+      &nbsp;<span class="note">Long-term ${isN(r.lt)?r.lt.toFixed(0):'–'}/100 · Short-term ${isN(r.st)?r.st.toFixed(0):'–'}/100</span>
+      <div style="margin-top:6px;color:var(--tx2)">${r.stance.d}</div>
+    </div>
+
+    <div class="grid2">
+      <div class="card"><h3>Price — last 12 months</h3>${spark(r.spark)}
+        <div class="kv" style="margin-top:8px"><span style="color:var(--tx2)">52-week range</span>
+          <b class="mono">${fmt(r.wk52Low)} – ${fmt(r.wk52High)}</b></div>
+        ${kv('Position in range', isN(t.range52Pos) ? t.range52Pos.toFixed(0)+'%' : '–')}
+        ${kv('Max drawdown (1y)', isN(t.maxDrawdown1Y) ? `<span class="neg">${t.maxDrawdown1Y.toFixed(1)}%</span>` : '–')}
+      </div>
+
+      <div class="card"><h3>Long-term score — how it is built</h3>
+        ${Object.keys(W.lt).map(k => pillRow(W_LABEL[k], r.ltP[k], W.lt[k])).join('')}
+        <div style="margin-top:10px;padding-top:9px;border-top:1px solid var(--line);
+          display:flex;justify-content:space-between"><b>Weighted total</b>
+          <b style="color:var(--acc)">${isN(r.lt)?r.lt.toFixed(1):'–'} / 100</b></div>
+      </div>
+
+      <div class="card"><h3>Short-term score — how it is built</h3>
+        ${Object.keys(W.st).map(k => pillRow(W_LABEL[k], r.stP[k], W.st[k])).join('')}
+        <div style="margin-top:10px;padding-top:9px;border-top:1px solid var(--line);
+          display:flex;justify-content:space-between"><b>Weighted total</b>
+          <b style="color:var(--acc)">${isN(r.st)?r.st.toFixed(1):'–'} / 100</b></div>
+      </div>
+
+      <div class="card"><h3>Valuation</h3>
+        ${kv('P/E (TTM)', isN(v.pe) ? (v.pe>999?'&gt;999 (n/m)':v.pe.toFixed(2)) : 'n/m')}
+        ${kv('Sector median P/E', isN(ss.medianPE) ? ss.medianPE.toFixed(2)+` <span class="note">(${ss.count} cos)</span>` : '–')}
+        ${kv('Earnings yield', isN(v.earningsYieldPct) ? v.earningsYieldPct.toFixed(2)+'%' : '–')}
+        ${kv('EPS (TTM, implied)', isN(v.epsTTM) ? v.epsTTM.toFixed(2) : '–')}
+        ${kv('PEG (vs 3y growth)', isN(v.pegCalc) ? v.pegCalc.toFixed(2) : '–')}
+        ${kv('Market cap', 'Rs ' + big(v.marketCap))}
+        ${kv('Free float', isN(r.freeFloatPct) ? r.freeFloatPct.toFixed(1)+'%' : '–')}
+      </div>
+
+      <div class="card"><h3>Income</h3>
+        ${kv('Dividend yield', isN(v.divYield) ? v.divYield.toFixed(2)+'%' : '–')}
+        ${kv('Dividend per share (TTM)', isN(v.dpsTTM) ? 'Rs '+v.dpsTTM.toFixed(2) : '–')}
+        ${kv('Payout ratio', isN(v.payoutRatioPct)
+            ? (v.payoutRatioPct>100 ? `<span class="neg">${v.payoutRatioPct.toFixed(0)}%</span>`
+                                    : v.payoutRatioPct.toFixed(0)+'%') : '–')}
+        ${kv('Sector median yield', isN(ss.medianDY) ? ss.medianDY.toFixed(2)+'%' : '–')}
+        <div class="note" style="margin-top:8px">Payout above 100% means the dividend exceeds
+          reported earnings — check whether it is funded by cash reserves, asset sales or debt.</div>
+      </div>
+
+      <div class="card"><h3>Growth &amp; profitability</h3>
+        ${kv('Growth CAGR (3y)', pct(f.growthCAGR))}
+        ${kv('Measured on', `<span class="note">${f.growthBasis || 'EPS'}</span>`)}
+        ${kv('Revenue CAGR (3y)', pct(f.salesCAGR))}
+        ${kv('Latest year EPS growth', pct((f.epsGrowth||[])[0]))}
+        ${kv('Net margin (latest)', isN(f.npMarginLatest) ? f.npMarginLatest.toFixed(2)+'%' : '–')}
+        ${kv('Net margin (4y avg)', isN(f.npMarginAvg) ? f.npMarginAvg.toFixed(2)+'%' : '–')}
+        ${kv('Gross margin (latest)', isN(f.gpMarginLatest) ? f.gpMarginLatest.toFixed(2)+'%' : '–')}
+        ${kv('Profitable years', `${f.epsPositiveYears||0} of ${f.epsYears||0}`)}
+        ${kv('Latest quarter EPS YoY', pct(f.qEpsYoY))}
+      </div>
+
+      <div class="card"><h3>Price &amp; liquidity</h3>
+        ${kv('Return 1M / 3M', `${isN(t.ret1M)?t.ret1M.toFixed(1)+'%':'–'} / ${isN(t.ret3M)?t.ret3M.toFixed(1)+'%':'–'}`)}
+        ${kv('Return 6M / 1Y', `${isN(t.ret6M)?t.ret6M.toFixed(1)+'%':'–'} / ${isN(t.ret1Y)?t.ret1Y.toFixed(1)+'%':'–'}`)}
+        ${kv('50-day average', isN(t.ma50) ? fmt(t.ma50) : '–')}
+        ${kv('200-day average', isN(t.ma200) ? fmt(t.ma200) : '–')}
+        ${kv('Price vs 200-day', isN(t.ma200)&&isN(t.last)
+            ? pct((t.last/t.ma200-1)*100) : '–')}
+        ${kv('Volatility (annualised)', isN(t.volAnnualPct) ? t.volAnnualPct.toFixed(1)+'%' : '–')}
+        ${kv('Avg daily turnover (30d)', isN(t.turnover30d) ? 'Rs '+big(t.turnover30d) : '–')}
+        ${kv('Avg daily volume (30d)', isN(r.vol30dAvg) ? big(r.vol30dAvg)+' sh' : '–')}
+      </div>
+
+      <div class="card" style="border-color:#2c4a63">
+        <h3 style="color:var(--acc)">Balance sheet — enter by hand</h3>
+        ${r._m && r._m._src
+          ? `<div class="note" style="margin-bottom:10px;color:var(--acc)">
+              Auto-fetched from <b>${r._m._src}</b> on ${r._m._asof || '–'}${
+                r._m._note ? ' · ' + r._m._note : ''}.
+              Anything you type here overrides it and survives the next fetch.</div>`
+          : `<div class="note" style="margin-bottom:10px">PSX publishes no balance-sheet data.
+              Press <b>Fetch balance-sheet data</b> in the header to pull it automatically,
+              or type it from the annual report. Blank fields are skipped, never counted as zero.</div>`}
+        ${r._bs?.skipped?.length ? `<div class="note" style="margin-bottom:8px;color:var(--s3)">
+          Excluded for this sector (leverage is structural here): ${r._bs.skipped.join(', ')}.</div>` : ''}
+        ${BS_FIELDS.map(f => {
+          const v = (r._m && r._m[f.k] !== undefined) ? r._m[f.k] : '';
+          const sc = r._bs?.parts?.[f.k];
+          const c = !isN(sc) ? 'var(--tx3)' : sc >= 70 ? 'var(--s1)' : sc >= 55 ? 'var(--s2)' : sc >= 40 ? 'var(--s3)' : 'var(--s4)';
+          return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0">
+            <span style="flex:1;font-size:12px;color:var(--tx2)" title="${f.hint}">${f.t}
+              <span style="color:var(--tx3)">(${f.u})</span></span>
+            <input class="bsin" data-k="${f.k}" value="${v}" placeholder="–"
+              style="width:78px;text-align:right" inputmode="decimal">
+            <b style="width:26px;text-align:right;color:${c};font-size:11px">${isN(sc)?sc.toFixed(0):'–'}</b>
+          </div>`;
+        }).join('')}
+        ${isN(r._bs?.pb) ? `<div class="kv" style="margin-top:8px"><span style="color:var(--tx2)">Price to book (computed)</span><b>${r._bs.pb.toFixed(2)}×</b></div>` : ''}
+        <div style="display:flex;gap:8px;margin-top:10px;align-items:center">
+          <button class="primary" id="bsSave">Save</button>
+          <button id="bsClear">Clear</button>
+          <span class="note" id="bsMsg"></span>
+        </div>
+        <div class="note" style="margin-top:8px">Balance-sheet pillar:
+          <b style="color:var(--acc)">${isN(r.ltP.balance)?r.ltP.balance.toFixed(0)+' / 100':'not scored yet'}</b>
+          at weight ${W.lt.balance}%.</div>
+      </div>
+
+      <div class="card"><h3>Risk flags (${r.flags.length})</h3>
+        ${r.flags.length
+          ? `<ul class="flags">${r.flags.map(x=>`<li>${sevTxt[x.sev]} ${x.msg}</li>`).join('')}</ul>`
+          : '<div class="note">No flags raised by the rule set. That is not the same as no risk — it means nothing in the four years of data PSX publishes tripped a rule.</div>'}
+      </div>
+    </div>
+
+    <div class="grid2" style="margin-top:16px">
+      ${ftable(r.annualTable, 'Annual financials (Rs 000s, EPS in Rs)')}
+      ${ftable(r.quarterlyTable, 'Quarterly financials (Rs 000s, EPS in Rs)')}
+      ${ftable(r.ratioTable, 'Reported ratios (%)')}
+      <div class="card"><h3>Business</h3>
+        <div class="note" style="font-size:12px;color:var(--tx2)">${r.description || 'No description published.'}</div>
+        <div class="kv" style="margin-top:10px"><span style="color:var(--tx2)">Fiscal year end</span><b>${r.fiscalYearEnd||'–'}</b></div>
+        <div class="kv"><span style="color:var(--tx2)">Shares outstanding</span><b class="mono">${big(r.shares)}</b></div>
+        <div style="margin-top:10px"><a href="https://dps.psx.com.pk/company/${r.symbol}" target="_blank" rel="noopener">Open ${r.symbol} on the PSX data portal ↗</a></div>
+        ${SERVER() ? `<div style="margin-top:10px"><button onclick="removeSym('${r.symbol}')">Remove from watchlist</button></div>` : ''}
+      </div>
+    </div>
+
+    <div class="disc" style="margin-top:16px">Scores are computed from four years of PSX-published
+      Sales / Profit / EPS plus price history. They contain no information about debt levels, cash flow
+      quality, related-party dealings, pledged shares or management conduct — all of which have sunk
+      companies that screened well. Treat a high score as "worth reading the annual report", not as a decision.</div>
+  </div>`;
+  const collect = () => {
+    const o = {};
+    document.querySelectorAll('#sheet .bsin').forEach(i => {
+      const v = i.value.trim();
+      o[i.dataset.k] = v === '' ? null : v;
+    });
+    return o;
+  };
+  $('#bsSave').onclick = async () => {
+    await saveManual(sym, collect());
+    $('#bsMsg').textContent = 'saved';
+    rebuild(); openDetail(sym);
+  };
+  $('#bsClear').onclick = async () => {
+    const o = {}; BS_FIELDS.forEach(f => o[f.k] = null);
+    await saveManual(sym, o);
+    rebuild(); openDetail(sym);
+  };
+  document.querySelectorAll('#sheet .bsin').forEach(i => {
+    i.onkeydown = e => { if (e.key === 'Enter') $('#bsSave').click(); };
+  });
+
+  $('#detail').classList.add('on');
+  document.body.style.overflow = 'hidden';
+}
+function closeDetail() {
+  $('#detail').classList.remove('on');
+  document.body.style.overflow = '';
+}
+$('#detail').onclick = e => { if (e.target.id === 'detail') closeDetail(); };
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDetail(); });
+
+/* ======================================================================
+   WEIGHTS UI
+   ====================================================================== */
+function renderWeights() {
+  const mk = (grp, box) => $(box).innerHTML = Object.keys(W[grp]).map(k =>
+    `<div class="wrow"><label>${W_LABEL[k]}</label>
+      <input type="range" min="0" max="40" value="${W[grp][k]}" data-g="${grp}" data-k="${k}">
+      <b>${W[grp][k]}</b></div>`).join('');
+  mk('lt', '#wLT'); mk('st', '#wST');
+  document.querySelectorAll('#weights input[type=range]').forEach(el => {
+    el.oninput = () => {
+      W[el.dataset.g][el.dataset.k] = +el.value;
+      el.nextElementSibling.textContent = el.value;
+      localStorage.setItem('psx_w', JSON.stringify(W));
+      rebuild();
+    };
+  });
+}
+$('#bW').onclick = () => $('#weights').classList.toggle('on');
+$('#bWReset').onclick = () => {
+  W = structuredClone(DEFAULT_W);
+  localStorage.setItem('psx_w', JSON.stringify(W));
+  renderWeights(); rebuild(); toast('Weights reset to defaults');
+};
+
+/* ======================================================================
+   ADD / REMOVE / REFRESH
+   ====================================================================== */
+function toast(m, ms = 3200) {
+  const t = $('#toast'); t.textContent = m; t.classList.add('on');
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('on'), ms);
+}
+$('#bAdd').onclick = () => { $('#addbox').classList.toggle('on'); $('#q').focus(); };
+
+let picked = null;
+$('#q').oninput = () => {
+  const q = $('#q').value.trim().toLowerCase();
+  picked = null;
+  const box = $('#qres');
+  if (q.length < 2) { box.classList.remove('on'); return; }
+  const have = new Set(Object.keys(DATA.stocks));
+  const hits = (DATA.universe || [])
+    .filter(u => !have.has(u.symbol) &&
+      (u.symbol.toLowerCase().includes(q) || u.name.toLowerCase().includes(q)))
+    .sort((a, b) => (a.symbol.toLowerCase().indexOf(q) === 0 ? -1 : 0) -
+                    (b.symbol.toLowerCase().indexOf(q) === 0 ? -1 : 0))
+    .slice(0, 40);
+  box.innerHTML = hits.length
+    ? hits.map(u => `<div class="ritem" data-s="${u.symbol}"><b>${u.symbol}</b>
+        <span>${u.name}</span><em>${u.sector}</em></div>`).join('')
+    : '<div class="ritem"><span>No match (or already tracked)</span></div>';
+  box.classList.add('on');
+  box.querySelectorAll('.ritem[data-s]').forEach(el => {
+    el.onclick = () => { picked = el.dataset.s; $('#q').value = picked; box.classList.remove('on'); };
+  });
+};
+
+async function addSym() {
+  const sym = (picked || $('#q').value.trim().toUpperCase());
+  if (!sym) return toast('Type or pick a symbol first');
+  if (DATA.stocks[sym]) return toast(sym + ' is already tracked');
+  if (!SERVER()) return toast(`Static mode. Run:  python psx_scraper.py ${sym}  (or use start.bat)`, 7000);
+  $('#bAddGo').disabled = true; toast('Scraping ' + sym + ' from PSX…', 60000);
+  try {
+    const r = await fetch('/api/add?symbol=' + encodeURIComponent(sym), {method:'POST'});
+    const j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || 'failed');
+    DATA = j; rebuild();
+    $('#q').value = ''; picked = null; $('#qres').classList.remove('on');
+    toast(sym + ' added');
+  } catch (e) { toast('Could not add ' + sym + ': ' + e.message, 6000); }
+  $('#bAddGo').disabled = false;
+}
+$('#bAddGo').onclick = addSym;
+$('#q').onkeydown = e => { if (e.key === 'Enter') addSym(); };
+
+async function removeSym(sym) {
+  if (!SERVER()) return toast('Static mode — edit watchlist.json instead');
+  if (!confirm('Remove ' + sym + ' from the watchlist?')) return;
+  const r = await fetch('/api/remove?symbol=' + encodeURIComponent(sym), {method:'POST'});
+  DATA = await r.json(); closeDetail(); rebuild(); toast(sym + ' removed');
+}
+
+$('#bRefresh').onclick = async () => {
+  if (!SERVER()) return toast('Static mode. Run:  python psx_scraper.py', 6000);
+  $('#bRefresh').disabled = true; $('#bRefresh').textContent = 'Refreshing…';
+  toast('Re-scraping every holding from PSX — this takes a moment…', 120000);
+  try {
+    const r = await fetch('/api/refresh', {method:'POST'});
+    DATA = await r.json(); rebuild(); stamp();
+    toast('Data refreshed · ' + DATA.generatedAt);
+  } catch (e) { toast('Refresh failed: ' + e.message, 6000); }
+  $('#bRefresh').disabled = false; $('#bRefresh').textContent = 'Refresh data';
+};
+
+$('#bCsv').onclick = () => {
+  const head = ['Symbol','Company','Sector','Price','1Y%','PE','PEvsSector','DivYield%',
+    'Payout%','GrowthCAGR%','GrowthBasis','RevenueCAGR%','NetMargin%','MarketCap',
+    'Volatility%','LongTermScore','ShortTermScore','Grade','Stance','RiskFlags'];
+  const lines = [head.join(',')].concat(ROWS.map(r => {
+    const v = r.valuation||{}, f = r.fundamentals||{}, t = r.technicals||{};
+    const c = x => `"${String(x ?? '').replace(/"/g,'""')}"`;
+    const n = x => isN(x) ? x.toFixed(2) : '';
+    return [c(r.symbol), c(r.name), c(r.sector), n(v.price), n(r.change1Y), n(v.pe),
+      n(val(r,'peRel')), n(v.divYield), n(v.payoutRatioPct), n(f.growthCAGR), c(f.growthBasis),
+      n(f.salesCAGR), n(f.npMarginLatest), n(v.marketCap), n(t.volAnnualPct),
+      n(r.lt), n(r.st), c(r.grade.k), c(r.stance.t), r.flags.length].join(',');
+  }));
+  const b = new Blob([lines.join('\n')], {type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(b);
+  a.download = `psx-holdings-${new Date().toISOString().slice(0,10)}.csv`;
+  a.click(); URL.revokeObjectURL(a.href);
+};
+
+/* ---------- automated ratio fetch (headless Chrome) ---------- */
+$('#bRatios').onclick = async () => {
+  if (!SERVER()) return toast('Static mode. Run:  python psx_ratios.py', 6000);
+  const b = $('#bRatios');
+  b.disabled = true; b.textContent = 'Fetching…';
+  toast('Rendering source pages in headless Chrome — about 10s per holding. Watch the console window for progress.', 600000);
+  try {
+    const r = await fetch('/api/ratios', {method:'POST'});
+    const j = await r.json();
+    if (j.error) throw new Error(j.error);
+    MANUAL = {...MANUAL, ...(j.manual || {})};
+    localStorage.setItem('psx_manual', JSON.stringify(MANUAL));
+    rebuild();
+    const nf = Object.keys(j.failed || {}).length;
+    toast(`Balance-sheet data fetched for ${j.ok.length} holding${j.ok.length===1?'':'s'}` +
+          (nf ? ` · ${nf} failed: ${Object.keys(j.failed).join(', ')}` : ''), 7000);
+  } catch (e) { toast('Fetch failed: ' + e.message, 7000); }
+  b.disabled = false; b.textContent = 'Fetch balance-sheet data';
+};
+
+/* ---------- balance-sheet bulk CSV ---------- */
+const BS_KEYS = BS_FIELDS.map(f => f.k);
+$('#bBs').onclick = () => {
+  const b = $('#bsbox');
+  b.style.display = b.style.display === 'none' ? 'block' : 'none';
+};
+$('#bBsTpl').onclick = () => {
+  const head = ['symbol', ...BS_KEYS].join(',');
+  const lines = ROWS.map(r => [r.symbol, ...BS_KEYS.map(k => (MANUAL[r.symbol]||{})[k] ?? '')].join(','));
+  const csv = [head, ...lines].join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv'}));
+  a.download = 'psx-balance-sheet-template.csv';
+  a.click(); URL.revokeObjectURL(a.href);
+  $('#bsPaste').value = csv;
+  $('#bsBulkMsg').textContent = 'template downloaded (and pasted below for editing)';
+};
+$('#bBsImp').onclick = async () => {
+  const txt = $('#bsPaste').value.trim();
+  if (!txt) return toast('Paste some rows first');
+  const rows = txt.split(/\r?\n/).filter(l => l.trim());
+  const split = l => l.split(/\t|,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(x => x.replace(/^"|"$/g,'').trim());
+  let head = split(rows[0]).map(h => h.toLowerCase());
+  let start = 1;
+  if (!head.includes('symbol')) { head = ['symbol', ...BS_KEYS]; start = 0; }
+  const known = new Set(Object.keys(DATA.stocks));
+  let ok = 0, skipped = [];
+  for (let i = start; i < rows.length; i++) {
+    const c = split(rows[i]);
+    const rec = {};
+    head.forEach((h, j) => { if (h !== 'symbol') rec[h] = c[j] ?? ''; });
+    const sym = (c[head.indexOf('symbol')] || '').toUpperCase();
+    if (!sym) continue;
+    if (!known.has(sym)) { skipped.push(sym); continue; }
+    const clean = {};
+    BS_KEYS.forEach(k => {
+      const v = rec[k];
+      clean[k] = (v === undefined || v === '' || isNaN(parseFloat(v))) ? null : String(parseFloat(v));
+    });
+    await saveManual(sym, clean); ok++;
+  }
+  rebuild();
+  $('#bsBulkMsg').textContent = `imported ${ok} row${ok===1?'':'s'}` +
+    (skipped.length ? ` · not tracked, skipped: ${skipped.join(', ')}` : '');
+  toast(`Balance-sheet data imported for ${ok} holding${ok===1?'':'s'}`);
+};
+$('#bBsWipe').onclick = async () => {
+  if (!confirm('Clear all hand-entered balance-sheet data?')) return;
+  for (const s of Object.keys(MANUAL)) {
+    const o = {}; BS_KEYS.forEach(k => o[k] = null);
+    await saveManual(s, o);
+  }
+  rebuild(); $('#bsBulkMsg').textContent = 'cleared';
+};
+
+$('#filter').oninput = renderTable;
+$('#fverdict').onchange = renderTable;
+
+function stamp() {
+  $('#stamp').textContent =
+    `data ${DATA.generatedAt} · source ${DATA.source} · ${SERVER() ? 'live mode' : 'read-only'}`;
+}
+
+/* Statically hosted (GitHub Pages): nothing can scrape, so mark the live-only
+   controls as unavailable instead of letting them fail on click. */
+function applyMode() {
+  if (SERVER()) return;
+  [['#bRefresh','Refreshing needs the local server'],
+   ['#bAdd','Adding a stock needs the local server'],
+   ['#bRatios','Fetching ratios needs the local server']].forEach(([sel, why]) => {
+    const el = $(sel); if (!el) return;
+    el.disabled = true; el.title = why + ' — run start.bat on your PC';
+    el.style.opacity = .45; el.style.cursor = 'not-allowed';
+  });
+  const b = document.createElement('div');
+  b.className = 'note';
+  b.style.cssText = 'width:100%;margin-top:6px;color:var(--tx3)';
+  b.innerHTML = 'Read-only view. Sorting, filtering, the scoring weights and every '
+    + 'detail panel work here; scraping and editing need the local server '
+    + '(<b class="mono">start.bat</b>) on your own machine.';
+  document.querySelector('header').appendChild(b);
+}
+
+/* ---------- boot ---------- */
+loadData().then(d => {
+  DATA = d; stamp();
+  // server copy wins when present, so the figures follow the machine not the browser
+  if (d.manual && Object.keys(d.manual).length) {
+    MANUAL = {...MANUAL, ...d.manual};
+    localStorage.setItem('psx_manual', JSON.stringify(MANUAL));
+  }
+  renderWeights(); rebuild(); applyMode();
+  const errs = Object.keys(d.errors || {});
+  if (errs.length) toast('Could not fetch: ' + errs.join(', '), 6000);
+}).catch(e => {
+  document.querySelector('main').innerHTML =
+    `<div class="panel" style="padding:22px">
+      <h2 style="margin-bottom:8px">No data yet</h2>
+      <div class="note" style="font-size:13px">${e.message}<br><br>
+      Run <b class="mono">start.bat</b> (recommended — gives you live refresh and add-stock),
+      or <b class="mono">python psx_scraper.py</b> then reopen this file.</div></div>`;
+});
+</script>
+</body>
+</html>

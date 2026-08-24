@@ -1,0 +1,11 @@
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Local server log and scratch files from the ratio harvester
+data/server.log
+data/_*
+
+# OS noise
+.DS_Store
+Thumbs.db
