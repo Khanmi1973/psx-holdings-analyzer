@@ -154,6 +154,7 @@ tbody tr:hover{background:#1a222d}
   <div class="spacer"></div>
   <button id="bAdd">+ Add stock</button>
   <button id="bW">Scoring weights</button>
+  <button id="bCloud" title="Connect this page to GitHub Actions">⚙ Online setup</button>
   <button id="bRatios">Fetch balance-sheet data</button>
   <button id="bBs">Balance-sheet CSV</button>
   <button id="bCsv">Export CSV</button>
@@ -169,6 +170,42 @@ tbody tr:hover{background:#1a222d}
     <input id="q" placeholder="e.g. LUCK, Systems Limited, bank…" style="width:340px" autocomplete="off">
     <button class="primary" id="bAddGo">Add &amp; scrape</button>
     <div class="results" id="qres"></div>
+  </div>
+
+  <div class="panel" id="cloudbox" style="display:none;margin-bottom:16px;padding:14px 16px">
+    <div class="bar" style="margin:0 0 10px">
+      <b style="font-size:12px">Run Refresh and Add from this page</b>
+      <span class="note">Works on the hosted dashboard — no PC needed.</span>
+    </div>
+    <div class="note" style="line-height:1.75;margin-bottom:12px">
+      This page is static, so it has no server of its own. Instead it asks
+      <b>GitHub Actions</b> to do the work: your click starts the same workflow that runs
+      on a schedule, which scrapes PSX, commits the result and republishes the dashboard.
+      That takes a <b>GitHub token</b>, and a token can never live in a public repository —
+      so it is stored <b>only in this browser</b> and never leaves it except to call GitHub.
+      <br><br>
+      <b>Create one with the narrowest possible access:</b>
+      <ol style="margin:8px 0 0 16px;padding:0">
+        <li>Open <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">github.com/settings/personal-access-tokens/new</a> (Fine-grained token)</li>
+        <li><b>Repository access</b> → <i>Only select repositories</i> → pick <span class="mono" id="repoName">your repo</span></li>
+        <li><b>Permissions</b> → Repository permissions → <b>Actions</b> → <i>Read and write</i>. Nothing else — leave every other permission at "No access".</li>
+        <li>Set an expiry you are comfortable with, generate it, and paste it below.</li>
+      </ol>
+      <div style="margin-top:8px">That token can start workflow runs on this one repository and
+      do nothing else — it cannot read your other repos, your account, or anything private.
+      Revoke it any time from the same settings page.</div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <input id="ghRepo" placeholder="owner/repo" style="width:250px" spellcheck="false">
+      <input id="ghTok" type="password" placeholder="github_pat_…" style="width:290px"
+             spellcheck="false" autocomplete="off">
+      <button class="primary" id="bCloudSave">Save &amp; test</button>
+      <button id="bCloudClear">Forget token</button>
+      <span class="note" id="cloudMsg"></span>
+    </div>
+    <div class="note" style="margin-top:8px">Stored in this browser's local storage only.
+      It is never written into the repository, never committed, and is not visible to anyone
+      who opens the published page.</div>
   </div>
 
   <div class="panel" id="bsbox" style="display:none;margin-bottom:16px;padding:14px 16px">
@@ -915,7 +952,7 @@ function openDetail(sym) {
         <div class="kv" style="margin-top:10px"><span style="color:var(--tx2)">Fiscal year end</span><b>${r.fiscalYearEnd||'–'}</b></div>
         <div class="kv"><span style="color:var(--tx2)">Shares outstanding</span><b class="mono">${big(r.shares)}</b></div>
         <div style="margin-top:10px"><a href="https://dps.psx.com.pk/company/${r.symbol}" target="_blank" rel="noopener">Open ${r.symbol} on the PSX data portal ↗</a></div>
-        ${SERVER() ? `<div style="margin-top:10px"><button onclick="removeSym('${r.symbol}')">Remove from watchlist</button></div>` : ''}
+        ${(SERVER() || GH.on) ? `<div style="margin-top:10px"><button onclick="removeSym('${r.symbol}')">Remove from watchlist</button></div>` : ''}
       </div>
     </div>
 
@@ -1017,7 +1054,10 @@ async function addSym() {
   const sym = (picked || $('#q').value.trim().toUpperCase());
   if (!sym) return toast('Type or pick a symbol first');
   if (DATA.stocks[sym]) return toast(sym + ' is already tracked');
-  if (!SERVER()) return toast(`Static mode. Run:  python psx_scraper.py ${sym}  (or use start.bat)`, 7000);
+  if (!SERVER()) {
+    $('#q').value = ''; picked = null; $('#qres').classList.remove('on');
+    return runWorkflow({add: sym}, `Adding ${sym} and fetching its data`);
+  }
   $('#bAddGo').disabled = true; toast('Scraping ' + sym + ' from PSX…', 60000);
   try {
     const r = await fetch('/api/add?symbol=' + encodeURIComponent(sym), {method:'POST'});
@@ -1033,14 +1073,14 @@ $('#bAddGo').onclick = addSym;
 $('#q').onkeydown = e => { if (e.key === 'Enter') addSym(); };
 
 async function removeSym(sym) {
-  if (!SERVER()) return toast('Static mode — edit watchlist.json instead');
   if (!confirm('Remove ' + sym + ' from the watchlist?')) return;
+  if (!SERVER()) { closeDetail(); return runWorkflow({remove: sym}, `Removing ${sym}`); }
   const r = await fetch('/api/remove?symbol=' + encodeURIComponent(sym), {method:'POST'});
   DATA = await r.json(); closeDetail(); rebuild(); toast(sym + ' removed');
 }
 
 $('#bRefresh').onclick = async () => {
-  if (!SERVER()) return toast('Static mode. Run:  python psx_scraper.py', 6000);
+  if (!SERVER()) return runWorkflow({}, 'Re-scraping every holding from PSX');
   $('#bRefresh').disabled = true; $('#bRefresh').textContent = 'Refreshing…';
   toast('Re-scraping every holding from PSX — this takes a moment…', 120000);
   try {
@@ -1071,9 +1111,155 @@ $('#bCsv').onclick = () => {
   a.click(); URL.revokeObjectURL(a.href);
 };
 
+/* ======================================================================
+   CLOUD MODE - drive GitHub Actions from a static page
+   ====================================================================== */
+const GH = {
+  get repo() { return localStorage.getItem('psx_gh_repo') || guessRepo(); },
+  get tok()  { return localStorage.getItem('psx_gh_tok') || ''; },
+  get on()   { return !!(this.repo && this.tok); }
+};
+/* khanmi1973.github.io/psx-holdings-analyzer/ -> Khanmi1973/psx-holdings-analyzer */
+function guessRepo() {
+  const m = location.hostname.match(/^([^.]+)\.github\.io$/);
+  if (!m) return '';
+  const seg = location.pathname.split('/').filter(Boolean)[0];
+  return seg ? `${m[1]}/${seg}` : '';
+}
+const WORKFLOW = 'refresh.yml';
+
+async function gh(path, opt = {}) {
+  const r = await fetch('https://api.github.com/repos/' + GH.repo + path, {
+    ...opt,
+    headers: {
+      'Accept': 'application/vnd.github+json',
+      'Authorization': 'Bearer ' + GH.tok,
+      'X-GitHub-Api-Version': '2022-11-28',
+      ...(opt.body ? {'Content-Type': 'application/json'} : {})
+    }
+  });
+  if (r.status === 204) return null;
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.message || ('GitHub returned ' + r.status));
+  return j;
+}
+
+/* Fire the workflow, then follow the run it created. */
+async function runWorkflow(inputs, label) {
+  if (!GH.on) { $('#cloudbox').style.display = 'block'; return toast('Connect to GitHub first — see the panel above', 6000); }
+  const since = new Date(Date.now() - 60000).toISOString();
+  cloudBusy(true, label + ' — asking GitHub to start…');
+  try {
+    await gh(`/actions/workflows/${WORKFLOW}/dispatches`, {
+      method: 'POST',
+      body: JSON.stringify({ref: 'main', inputs})
+    });
+  } catch (e) {
+    cloudBusy(false);
+    return toast('Could not start the run: ' + e.message, 8000);
+  }
+
+  // The run appears a moment after dispatch; find it, then poll to completion.
+  let run = null;
+  for (let i = 0; i < 20 && !run; i++) {
+    await sleep(3000);
+    try {
+      const d = await gh(`/actions/workflows/${WORKFLOW}/runs?event=workflow_dispatch&per_page=5`);
+      run = (d.workflow_runs || []).find(r => r.created_at >= since) || null;
+    } catch (e) { /* transient - keep trying */ }
+  }
+  if (!run) { cloudBusy(false); return toast('Run started but could not be tracked. Check the Actions tab.', 8000); }
+
+  cloudBusy(true, `${label} — running… <a href="${run.html_url}" target="_blank" rel="noopener">view log ↗</a>`);
+  const t0 = Date.now();
+  while (run.status !== 'completed') {
+    await sleep(6000);
+    if (Date.now() - t0 > 15 * 60000) { cloudBusy(false); return toast('Still running after 15 minutes — check the Actions tab.', 9000); }
+    try { run = await gh(`/actions/runs/${run.id}`); } catch (e) { /* keep polling */ }
+    const mins = Math.round((Date.now() - t0) / 60000);
+    cloudBusy(true, `${label} — running ${mins ? mins + 'm' : ''}… <a href="${run.html_url}" target="_blank" rel="noopener">view log ↗</a>`);
+  }
+  cloudBusy(false);
+  if (run.conclusion !== 'success') {
+    return toast(`Run finished as "${run.conclusion}". Open the log to see why.`, 9000);
+  }
+  cloudBusy(true, 'Loading the new data…');
+  const got = await reloadFromRepo();
+  cloudBusy(false);
+  toast(got ? 'Updated — ' + DATA.generatedAt : 'Run succeeded; the page will show it shortly.', 6000);
+}
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+/* Read the freshly committed data straight from the repo, so we do not have to
+   wait for the Pages deployment to catch up. */
+async function reloadFromRepo() {
+  const url = `https://raw.githubusercontent.com/${GH.repo}/main/docs/data/psx_data.js?t=${Date.now()}`;
+  try {
+    const r = await fetch(url, {cache:'no-store'});
+    if (!r.ok) return false;
+    const txt = await r.text();
+    const json = txt.replace(/^\s*window\.PSX_DATA\s*=\s*/, '').replace(/;\s*$/, '');
+    const d = JSON.parse(json);
+    if (!d.stocks) return false;
+    DATA = d;
+    if (d.manual) { MANUAL = {...MANUAL, ...d.manual}; localStorage.setItem('psx_manual', JSON.stringify(MANUAL)); }
+    rebuild(); stamp();
+    return true;
+  } catch (e) { return false; }
+}
+
+function cloudBusy(on, html) {
+  let el = $('#cloudbar');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'cloudbar';
+    el.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:150;background:var(--panel2);'
+      + 'border-top:1px solid var(--acc);padding:9px 18px;font-size:12.5px;display:none';
+    document.body.appendChild(el);
+  }
+  el.style.display = on ? 'block' : 'none';
+  if (on) el.innerHTML = '<span style="color:var(--acc)">●</span> ' + html;
+  ['#bRefresh','#bAddGo','#bRatios'].forEach(s => { const b = $(s); if (b) b.disabled = on; });
+}
+
+/* ---------- cloud settings panel ---------- */
+$('#bCloud').onclick = () => {
+  const b = $('#cloudbox');
+  b.style.display = b.style.display === 'none' ? 'block' : 'none';
+  $('#ghRepo').value = GH.repo;
+  $('#repoName').textContent = GH.repo || 'your repo';
+  $('#cloudMsg').textContent = GH.tok ? 'token saved in this browser' : '';
+};
+$('#bCloudSave').onclick = async () => {
+  const repo = $('#ghRepo').value.trim().replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '');
+  const tok = $('#ghTok').value.trim();
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) return toast('Repository should look like owner/repo');
+  if (!tok) return toast('Paste the token you generated');
+  localStorage.setItem('psx_gh_repo', repo);
+  localStorage.setItem('psx_gh_tok', tok);
+  $('#ghTok').value = '';
+  $('#cloudMsg').textContent = 'testing…';
+  try {
+    const wf = await gh(`/actions/workflows/${WORKFLOW}`);
+    $('#cloudMsg').innerHTML = `<span class="pos">connected — workflow "${wf.name}" is ${wf.state}</span>`;
+    applyMode();
+    toast('Connected. Refresh and Add now work from this page.', 6000);
+  } catch (e) {
+    $('#cloudMsg').innerHTML = `<span class="neg">${e.message}</span>`;
+    toast('Could not reach that repo: ' + e.message + '. Check the token has Actions: Read and write on it.', 10000);
+  }
+};
+$('#bCloudClear').onclick = () => {
+  localStorage.removeItem('psx_gh_tok');
+  $('#cloudMsg').textContent = 'token removed from this browser';
+  applyMode();
+};
+
 /* ---------- automated ratio fetch (headless Chrome) ---------- */
 $('#bRatios').onclick = async () => {
-  if (!SERVER()) return toast('Static mode. Run:  python psx_ratios.py', 6000);
+  if (!SERVER()) return runWorkflow({ratios: true},
+    'Fetching balance-sheet ratios for every holding');
   const b = $('#bRatios');
   b.disabled = true; b.textContent = 'Fetching…';
   toast('Rendering source pages in headless Chrome — about 10s per holding. Watch the console window for progress.', 600000);
@@ -1157,21 +1343,38 @@ function stamp() {
 /* Statically hosted (GitHub Pages): nothing can scrape, so mark the live-only
    controls as unavailable instead of letting them fail on click. */
 function applyMode() {
-  if (SERVER()) return;
-  [['#bRefresh','Refreshing needs the local server'],
-   ['#bAdd','Adding a stock needs the local server'],
-   ['#bRatios','Fetching ratios needs the local server']].forEach(([sel, why]) => {
+  const local = SERVER(), cloud = GH.on;
+  const live = local || cloud;
+  const ids = ['#bRefresh', '#bAdd', '#bRatios'];
+  ids.forEach(sel => {
     const el = $(sel); if (!el) return;
-    el.disabled = true; el.title = why + ' — run start.bat on your PC';
-    el.style.opacity = .45; el.style.cursor = 'not-allowed';
+    el.disabled = false;
+    el.style.opacity = live ? '' : .45;
+    el.style.cursor = live ? '' : 'not-allowed';
+    el.title = live ? '' : 'Connect to GitHub (⚙ Online setup) or run start.bat locally';
   });
-  const b = document.createElement('div');
-  b.className = 'note';
-  b.style.cssText = 'width:100%;margin-top:6px;color:var(--tx3)';
-  b.innerHTML = 'Read-only view. Sorting, filtering, the scoring weights and every '
-    + 'detail panel work here; scraping and editing need the local server '
-    + '(<b class="mono">start.bat</b>) on your own machine.';
-  document.querySelector('header').appendChild(b);
+  const cb = $('#bCloud');
+  if (cb) {
+    cb.style.display = local ? 'none' : '';      // pointless when the server is right here
+    cb.textContent = cloud ? '⚙ GitHub connected' : '⚙ Online setup';
+    cb.style.color = cloud ? 'var(--pos)' : '';
+  }
+  let b = $('#modeNote');
+  if (!b) {
+    b = document.createElement('div');
+    b.id = 'modeNote'; b.className = 'note';
+    b.style.cssText = 'width:100%;margin-top:6px;color:var(--tx3)';
+    document.querySelector('header').appendChild(b);
+  }
+  b.innerHTML = local
+    ? ''
+    : cloud
+      ? 'Connected to GitHub Actions. Refresh, Add and Remove run in the cloud — '
+        + 'each takes a couple of minutes and republishes the dashboard.'
+      : 'Read-only. Sorting, filtering, the scoring weights and every detail panel work. '
+        + 'For Refresh and Add, press <b>⚙ Online setup</b> — or run '
+        + '<b class="mono">start.bat</b> on your PC.';
+  b.style.display = local ? 'none' : '';
 }
 
 /* ---------- boot ---------- */

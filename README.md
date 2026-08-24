@@ -16,17 +16,47 @@ shows the full evidence behind each score.
 |---|---|---|
 | Open on your phone, PC switched off | ✓ | ✗ |
 | Sort, filter, adjust scoring weights, read every detail panel | ✓ | ✓ |
-| Re-scrape on demand | ✗ (auto, on a schedule) | ✓ |
-| Add or remove a stock | ✗ | ✓ |
-| Fetch balance-sheet ratios | ✗ | ✓ |
-| Edit balance-sheet figures | ✗ | ✓ |
+| Re-scrape on demand | ✓ * | ✓ |
+| Add or remove a stock | ✓ * | ✓ |
+| Fetch balance-sheet ratios | ✓ * | ✓ |
+| Edit balance-sheet figures by hand | saved in that browser | saved to `data/manual.json` |
 
-The hosted copy refreshes itself: a GitHub Actions workflow re-scrapes PSX at
+\* after a one-time connection to GitHub — see below.
+
+The hosted copy also refreshes itself unattended: the workflow re-scrapes PSX at
 **12:30 UTC on weekdays** (17:30 PKT, after the close), rebuilds `docs/` and commits the
-result, which redeploys Pages. Nothing runs on your machine.
+result, which redeploys Pages.
 
-To refresh it by hand, or to include the slower balance-sheet fetch, open the
-**Actions** tab → *Refresh PSX data* → *Run workflow* (tick *ratios* to include them).
+---
+
+## Making Refresh and Add work on the hosted page
+
+A GitHub Pages site is static — it has no server. So the buttons don't call a backend;
+they ask **GitHub Actions** to run the very same workflow that runs on the schedule.
+It scrapes, commits, and republishes, and the page loads the new data as soon as the run
+finishes (straight from the repo, without waiting for Pages to redeploy).
+
+Starting a workflow run requires a GitHub token, and **a token must never live in a
+public repository**. So it is stored only in your browser. Nothing secret is committed —
+the repo contains no credentials of any kind.
+
+**One-time setup**, from the dashboard's **⚙ Online setup** button:
+
+1. Go to [Fine-grained tokens](https://github.com/settings/personal-access-tokens/new)
+2. **Repository access** → *Only select repositories* → `psx-holdings-analyzer`
+3. **Permissions** → Repository permissions → **Actions: Read and write**.
+   Nothing else — leave every other permission at *No access*.
+4. Choose an expiry, generate, and paste it into the panel → **Save & test**
+
+That token can start workflow runs on this one repository and do nothing else. It cannot
+read your other repositories, your account, or anything private. Revoke it any time from
+the same settings page, or press **Forget token** to clear it from the browser.
+
+Each cloud action takes a couple of minutes (the run has to boot a machine, scrape, and
+commit). A bar at the bottom of the page shows progress and links to the live log.
+
+You can always drive the same workflow by hand from the **Actions** tab →
+*Refresh PSX data* → *Run workflow*, which also accepts symbols to add or remove.
 
 Changes you make locally reach the hosted copy with:
 

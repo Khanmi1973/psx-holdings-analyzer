@@ -1,7 +1,10 @@
 name: Refresh PSX data
 
 # Re-scrapes the exchange on GitHub's machines and republishes the dashboard to
-# GitHub Pages, so the read-only view is current on your phone with your PC off.
+# GitHub Pages, so the hosted view is current with your PC switched off.
+#
+# The hosted dashboard's Refresh / Add / Remove buttons trigger this same
+# workflow through the GitHub API, which is how a static page gets a backend.
 on:
   schedule:
     # 12:30 UTC on weekdays = 17:30 PKT, comfortably after the PSX close.
@@ -9,8 +12,16 @@ on:
     - cron: "30 12 * * 1-5"
   workflow_dispatch:
     inputs:
+      add:
+        description: "Symbols to add (comma separated, e.g. LUCK,SYS)"
+        type: string
+        default: ""
+      remove:
+        description: "Symbols to remove"
+        type: string
+        default: ""
       ratios:
-        description: "Also re-fetch balance-sheet ratios (slow, ~20s per holding)"
+        description: "Re-fetch balance-sheet ratios for every holding (slow)"
         type: boolean
         default: false
 
@@ -24,7 +35,7 @@ concurrency:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
       - name: Get the code
@@ -36,20 +47,35 @@ jobs:
           python-version: "3.12"
           # No pip install step: this project uses only the standard library.
 
+      # Inputs are untrusted, so they go in through the environment rather than
+      # being interpolated into the shell, and are validated in Python.
+      - name: Update the watchlist
+        id: watchlist
+        if: inputs.add != '' || inputs.remove != ''
+        env:
+          ADD: ${{ inputs.add }}
+          REMOVE: ${{ inputs.remove }}
+        run: python manage_watchlist.py --add "$ADD" --remove "$REMOVE"
+
       - name: Scrape PSX
         run: python psx_scraper.py
 
       # Balance-sheet ratios need a real browser to render the source page.
       # ubuntu-latest ships Chrome, so there is still nothing to install.
-      - name: Fetch balance-sheet ratios
+      - name: Fetch ratios for newly added symbols
+        if: steps.watchlist.outputs.new_symbols != ''
+        env:
+          NEW: ${{ steps.watchlist.outputs.new_symbols }}
+        run: python psx_ratios.py $NEW
+        continue-on-error: true
+
+      - name: Fetch ratios for every holding
         if: inputs.ratios
-        run: |
-          which google-chrome || which chromium-browser || true
-          python psx_ratios.py
+        run: python psx_ratios.py --overwrite
         continue-on-error: true    # a slow render must not fail the whole run
 
-      - name: Rebuild the data file with ratios folded in
-        if: inputs.ratios
+      - name: Fold ratios into the data file
+        if: inputs.ratios || steps.watchlist.outputs.new_symbols != ''
         run: python psx_scraper.py
 
       - name: Build docs/
@@ -59,7 +85,7 @@ jobs:
         run: |
           git config user.name  "psx-tracker bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A docs data/psx_data.json data/psx_data.js data/manual.json
+          git add -A docs data/psx_data.json data/psx_data.js data/manual.json watchlist.json
           if git diff --staged --quiet; then
             echo "No changes - nothing to publish."
           else
