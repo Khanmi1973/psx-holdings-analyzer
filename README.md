@@ -4,11 +4,41 @@ Automated tracking and screening for Pakistan Stock Exchange holdings. Scrapes P
 published data, computes a fundamental and a technical score for every holding, and
 shows the full evidence behind each score.
 
+**Live dashboard → https://khanmi1973.github.io/psx-holdings-analyzer/**
+
 **This is a research tool, not investment advice.** See *Limits* at the bottom — they matter.
 
 ---
 
-## Run it
+## Two ways to use it
+
+| | Hosted (GitHub Pages) | Local (`start.bat`) |
+|---|---|---|
+| Open on your phone, PC switched off | ✓ | ✗ |
+| Sort, filter, adjust scoring weights, read every detail panel | ✓ | ✓ |
+| Re-scrape on demand | ✗ (auto, on a schedule) | ✓ |
+| Add or remove a stock | ✗ | ✓ |
+| Fetch balance-sheet ratios | ✗ | ✓ |
+| Edit balance-sheet figures | ✗ | ✓ |
+
+The hosted copy refreshes itself: a GitHub Actions workflow re-scrapes PSX at
+**12:30 UTC on weekdays** (17:30 PKT, after the close), rebuilds `docs/` and commits the
+result, which redeploys Pages. Nothing runs on your machine.
+
+To refresh it by hand, or to include the slower balance-sheet fetch, open the
+**Actions** tab → *Refresh PSX data* → *Run workflow* (tick *ratios* to include them).
+
+Changes you make locally reach the hosted copy with:
+
+```bash
+python psx_scraper.py
+python build_docs.py
+git add -A && git commit -m "Update watchlist" && git push
+```
+
+---
+
+## Run it locally
 
 ```bash
 start.bat
@@ -244,6 +274,11 @@ Real filings are messier than a screener suggests. The scraper handles:
 - **Scores are arithmetic, not judgement.** They rank what is measurable. Treat a high
   score as "worth reading the annual report", not as a decision.
 - Data may be delayed or later restated by the issuer.
+- **This repository is public.** `watchlist.json` and the published dashboard show which
+  stocks are tracked here. Nothing about position sizes, purchase prices or account
+  details is stored anywhere in this project — but the list of symbols is visible to
+  anyone who finds the repo. Make the repo private if that changes for you (Pages on a
+  private repo needs GitHub Pro).
 
 ---
 
@@ -258,6 +293,9 @@ Real filings are messier than a screener suggests. The scraper handles:
 | `psx_server.py` | Local server and the add / remove / refresh API |
 | `index.html` | Dashboard and scoring engine |
 | `watchlist.json` | Tracked symbols — edit directly if you prefer |
-| `data/manual.json` | Your hand-entered balance-sheet figures |
+| `build_docs.py` | Builds the static site into `docs/` for GitHub Pages |
+| `.github/workflows/refresh.yml` | Scheduled re-scrape that republishes the hosted copy |
+| `docs/` | The published static site — generated, do not edit by hand |
+| `data/manual.json` | Balance-sheet figures (harvested or hand-entered) |
 | `data/psx_data.json` | Cached dataset |
 | `data/psx_data.js` | Same data, so `index.html` also opens directly from disk |
