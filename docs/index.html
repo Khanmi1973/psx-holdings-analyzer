@@ -134,6 +134,12 @@ tbody tr:hover{background:#1a222d}
 .ritem span{color:var(--tx3);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ritem em{color:var(--tx3);font-style:normal;font-size:10.5px}
 
+#confirmBox{position:fixed;inset:0;background:#04070ad9;z-index:180;display:none;
+  align-items:center;justify-content:center;padding:20px}
+#confirmBox.on{display:flex}
+.confirmCard{background:var(--panel2);border:1px solid var(--acc);border-radius:12px;
+  padding:20px;max-width:460px;width:100%;box-shadow:0 20px 60px #000a}
+
 .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:200;
   background:var(--panel2);border:1px solid var(--acc);padding:10px 18px;border-radius:8px;
   font-size:12.5px;display:none;box-shadow:0 8px 30px #000a}
@@ -239,6 +245,32 @@ EFERT,32.5,0.45,1.30,8.2,1.10,55.4"
     accounts before any decision. Data is supplied by PSX / Capital Stake and may be delayed or restated.
   </div>
 </main>
+
+<div id="confirmBox">
+  <div class="confirmCard">
+    <h2 style="font-size:15px;margin-bottom:6px" id="confirmTitle">Sending a request</h2>
+    <div class="note" style="font-size:12.5px;line-height:1.7">
+      This dashboard is a plain web page, so it cannot change anything by itself.
+      Instead it sends the request to <b>GitHub</b>, which does the scraping for you —
+      that is what keeps it working with no password and no laptop.
+      <div style="margin:10px 0;padding:9px 11px;background:var(--panel);border:1px solid var(--line);
+        border-radius:7px">
+        <div style="color:var(--tx3);font-size:11px;text-transform:uppercase;letter-spacing:.5px">Request</div>
+        <div class="mono" style="font-size:14px;color:var(--acc)" id="confirmCmd"></div>
+      </div>
+      <b>What happens next:</b>
+      <ol style="margin:6px 0 0 16px;padding:0">
+        <li>A GitHub page opens with this already filled in</li>
+        <li>Press the green <b>Submit new issue</b> button</li>
+        <li>Come back here — the numbers update on their own in a few minutes</li>
+      </ol>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end">
+      <button id="confirmCancel">Cancel</button>
+      <button class="primary" id="confirmGo">Open GitHub</button>
+    </div>
+  </div>
+</div>
 
 <div id="detail"><div class="sheet" id="sheet"></div></div>
 <div class="toast" id="toast"></div>
@@ -1110,13 +1142,23 @@ function requestUrl(title) {
        + `&body=${encodeURIComponent('Sent from the dashboard. Just press Submit.')}`;
 }
 
+/* Explain the hop to GitHub before it happens - being thrown onto an
+   "open an issue" page with no warning looks like filing a bug report. */
 function askGitHub(title, label) {
   if (!GH.on) return toast('This only works on the published dashboard', 5000);
-  window.open(requestUrl(title), '_blank', 'noopener');
-  cloudBusy(true, `${label} — submit the GitHub page that just opened, then come back. `
-    + `This page will update by itself in a few minutes. `
-    + `<a href="https://github.com/${GH.repo}/issues" target="_blank" rel="noopener">see requests ↗</a>`);
-  watchForUpdate();
+  const box = $('#confirmBox');
+  $('#confirmTitle').textContent = label;
+  $('#confirmCmd').textContent = title;
+  box.classList.add('on');
+  $('#confirmGo').onclick = () => {
+    box.classList.remove('on');
+    window.open(requestUrl(title), '_blank', 'noopener');
+    cloudBusy(true, `${label} — press the green <b>Submit new issue</b> button on the GitHub `
+      + `tab, then come back here. This page updates itself when the data lands. `
+      + `<a href="https://github.com/${GH.repo}/issues" target="_blank" rel="noopener">your requests ↗</a>`);
+    watchForUpdate();
+  };
+  $('#confirmCancel').onclick = () => box.classList.remove('on');
 }
 
 /* Poll the published data file (public, so no credentials) until it changes. */
