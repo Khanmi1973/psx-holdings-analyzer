@@ -16,47 +16,48 @@ shows the full evidence behind each score.
 |---|---|---|
 | Open on your phone, PC switched off | ✓ | ✗ |
 | Sort, filter, adjust scoring weights, read every detail panel | ✓ | ✓ |
-| Re-scrape on demand | ✓ * | ✓ |
-| Add or remove a stock | ✓ * | ✓ |
-| Fetch balance-sheet ratios | ✓ * | ✓ |
+| Refreshes itself through the trading day | ✓ | ✗ |
+| Re-scrape on demand | ✓ one tap | ✓ instant |
+| Add or remove a stock | ✓ one tap | ✓ instant |
+| Fetch balance-sheet ratios | ✓ one tap | ✓ instant |
 | Edit balance-sheet figures by hand | saved in that browser | saved to `data/manual.json` |
 
-\* after a one-time connection to GitHub — see below.
-
-The hosted copy also refreshes itself unattended: the workflow re-scrapes PSX at
-**12:30 UTC on weekdays** (17:30 PKT, after the close), rebuilds `docs/` and commits the
-result, which redeploys Pages.
+No account, token or setup is needed to use the hosted copy.
 
 ---
 
-## Making Refresh and Add work on the hosted page
+## Using it from your phone
 
-A GitHub Pages site is static — it has no server. So the buttons don't call a backend;
-they ask **GitHub Actions** to run the very same workflow that runs on the schedule.
-It scrapes, commits, and republishes, and the page loads the new data as soon as the run
-finishes (straight from the repo, without waiting for Pages to redeploy).
+**There is no sign-in, no token and no setup.** Open the link and it works.
 
-Starting a workflow run requires a GitHub token, and **a token must never live in a
-public repository**. So it is stored only in your browser. Nothing secret is committed —
-the repo contains no credentials of any kind.
+**Refreshing mostly takes care of itself.** The workflow re-scrapes PSX at 05:00, 07:00,
+09:00 and 11:00 UTC during the session and again at 12:30 UTC after the close, every
+weekday, and republishes. Open the dashboard and the numbers are already current.
 
-**One-time setup**, from the dashboard's **⚙ Online setup** button:
+**Adding or removing a stock** takes one tap. The buttons open a pre-filled GitHub issue —
+you are already signed in to GitHub on your phone, so you just press *Submit*. A workflow
+reads it, does the work, replies with the result and closes the issue. The dashboard
+watches for the new data and updates itself when it lands, usually in 2 to 4 minutes.
 
-1. Go to [Fine-grained tokens](https://github.com/settings/personal-access-tokens/new)
-2. **Repository access** → *Only select repositories* → `psx-holdings-analyzer`
-3. **Permissions** → Repository permissions → **Actions: Read and write**.
-   Nothing else — leave every other permission at *No access*.
-4. Choose an expiry, generate, and paste it into the panel → **Save & test**
+You can send the same requests from the GitHub app or website by opening an issue titled:
 
-That token can start workflow runs on this one repository and do nothing else. It cannot
-read your other repositories, your account, or anything private. Revoke it any time from
-the same settings page, or press **Forget token** to clear it from the browser.
+| Title | What happens |
+|---|---|
+| `add LUCK` | adds it, scrapes it, fetches its balance-sheet ratios |
+| `add LUCK, SYS, PSO` | adds several at once |
+| `remove DCR` | drops it from the watchlist |
+| `refresh` | re-scrapes every holding now |
+| `ratios` | re-scrapes and refreshes every balance-sheet ratio (slower) |
 
-Each cloud action takes a couple of minutes (the run has to boot a machine, scrape, and
-commit). A bar at the bottom of the page shows progress and links to the live log.
+Anything unrecognised gets a reply explaining the options, and nothing changes.
 
-You can always drive the same workflow by hand from the **Actions** tab →
-*Refresh PSX data* → *Run workflow*, which also accepts symbols to add or remove.
+**Only you can drive it.** The repository is public, so anyone can open an issue — the
+workflow checks the issue was opened by the repository owner and ignores everyone else.
+Titles are parsed in Python and never reach a shell, and symbols are validated against
+the live PSX listing before anything is written.
+
+Nothing on the page reads or stores a credential of any kind, and no secret exists
+anywhere in the repository.
 
 Changes you make locally reach the hosted copy with:
 
