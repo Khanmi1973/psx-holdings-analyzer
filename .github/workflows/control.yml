@@ -110,16 +110,31 @@ jobs:
 
       - name: Publish
         if: steps.parse.outputs.action != 'none'
+        env:
+          SUMMARY: ${{ steps.parse.outputs.summary }}
         run: |
           git config user.name  "psx-tracker bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A docs data/psx_data.json data/psx_data.js data/manual.json watchlist.json
           if git diff --staged --quiet; then
             echo "No changes."
-          else
-            git commit -m "${{ steps.parse.outputs.summary }}"
-            git push
+            exit 0
           fi
+          git commit -m "$SUMMARY"
+          # Anything else pushing meanwhile (the scheduled refresh, or a commit
+          # from a laptop) would otherwise reject this push and lose the work.
+          # These files are regenerated artefacts, so on a conflict ours wins:
+          # during a rebase, "theirs" refers to the commit being replayed.
+          for attempt in 1 2 3; do
+            if git push; then
+              echo "Published."
+              exit 0
+            fi
+            echo "Push rejected - someone pushed first. Rebasing and retrying ($attempt/3)."
+            git pull --rebase -X theirs origin main || exit 1
+          done
+          echo "Could not publish after 3 attempts."
+          exit 1
 
       - name: Report back and close
         if: always() && steps.parse.outputs.action != 'none'

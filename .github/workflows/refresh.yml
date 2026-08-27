@@ -91,10 +91,23 @@ jobs:
           git add -A docs data/psx_data.json data/psx_data.js data/manual.json watchlist.json
           if git diff --staged --quiet; then
             echo "No changes - nothing to publish."
-          else
-            git commit -m "Refresh PSX data $(date -u '+%Y-%m-%d %H:%M UTC')"
-            git push
+            exit 0
           fi
+          git commit -m "Refresh PSX data $(date -u '+%Y-%m-%d %H:%M UTC')"
+          # Anything else pushing meanwhile (a control run, or a commit from a
+          # laptop) would otherwise reject this push and lose the work. These
+          # files are regenerated artefacts, so on a conflict ours wins: during
+          # a rebase, "theirs" refers to the commit being replayed.
+          for attempt in 1 2 3; do
+            if git push; then
+              echo "Published."
+              exit 0
+            fi
+            echo "Push rejected - someone pushed first. Rebasing and retrying ($attempt/3)."
+            git pull --rebase -X theirs origin main || exit 1
+          done
+          echo "Could not publish after 3 attempts."
+          exit 1
 
       - name: Summary
         run: |
