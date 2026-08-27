@@ -7,9 +7,12 @@ name: Refresh PSX data
 # workflow through the GitHub API, which is how a static page gets a backend.
 on:
   schedule:
-    # 12:30 UTC on weekdays = 17:30 PKT, comfortably after the PSX close.
-    # GitHub queues cron jobs, so it may start a little late.
-    - cron: "30 12 * * 1-5"
+    # PSX trades 09:15-15:30 PKT = 04:15-10:30 UTC. Refresh through the session
+    # and once after the close, so the hosted dashboard is current on its own and
+    # you rarely need to ask for anything. Actions minutes are free and unlimited
+    # on public repositories. GitHub queues cron jobs, so runs may start late.
+    - cron: "0 5,7,9,11 * * 1-5"     # during the session
+    - cron: "30 12 * * 1-5"          # 17:30 PKT, after the close
   workflow_dispatch:
     inputs:
       add:

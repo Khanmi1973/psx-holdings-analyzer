@@ -1,0 +1,154 @@
+name: Watchlist control
+
+# Lets you add, remove or refresh from a phone with no token and no laptop.
+#
+# The dashboard's buttons open a pre-filled GitHub issue. You are already signed
+# in to GitHub on your phone, so submitting it takes one tap. This workflow reads
+# the issue title, does the work, replies with the result and closes the issue.
+#
+# Recognised titles:
+#   add LUCK            add LUCK, SYS, PSO
+#   remove DCR
+#   refresh
+#   ratios
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: psx-refresh          # shares the lock with the scheduled refresh
+  cancel-in-progress: false
+
+jobs:
+  control:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # This repository is public, so anyone can open an issue. Only the owner may
+    # drive the watchlist; everyone else's issues are ignored entirely.
+    if: github.event.issue.user.login == github.repository_owner
+
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The title is untrusted text, so it never reaches the shell: it goes in
+      # through the environment and is parsed and validated in Python.
+      - name: Read the request
+        id: parse
+        env:
+          TITLE: ${{ github.event.issue.title }}
+        run: python parse_request.py
+
+      - name: Not a recognised command
+        if: steps.parse.outputs.action == 'none'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: "I did not recognise that request.\n\nTry one of:\n"
+                  + "- `add LUCK` (or `add LUCK, SYS`)\n- `remove DCR`\n- `refresh`\n- `ratios`"
+            });
+            await github.rest.issues.update({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: context.issue.number, state: "closed"
+            });
+
+      - name: Acknowledge
+        if: steps.parse.outputs.action != 'none'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: "Working on it — this usually takes 2 to 4 minutes. "
+                  + "I will update this issue when the dashboard is live."
+            });
+
+      - name: Update the watchlist
+        id: watchlist
+        if: steps.parse.outputs.add != '' || steps.parse.outputs.remove != ''
+        env:
+          ADD: ${{ steps.parse.outputs.add }}
+          REMOVE: ${{ steps.parse.outputs.remove }}
+        run: python manage_watchlist.py --add "$ADD" --remove "$REMOVE"
+
+      - name: Scrape PSX
+        if: steps.parse.outputs.action != 'none'
+        run: python psx_scraper.py
+
+      - name: Fetch ratios for newly added symbols
+        if: steps.watchlist.outputs.new_symbols != ''
+        env:
+          NEW: ${{ steps.watchlist.outputs.new_symbols }}
+        run: python psx_ratios.py $NEW
+        continue-on-error: true
+
+      - name: Fetch ratios for every holding
+        if: steps.parse.outputs.action == 'ratios'
+        run: python psx_ratios.py --overwrite
+        continue-on-error: true
+
+      - name: Fold ratios into the data file
+        if: steps.watchlist.outputs.new_symbols != '' || steps.parse.outputs.action == 'ratios'
+        run: python psx_scraper.py
+
+      - name: Build docs/
+        if: steps.parse.outputs.action != 'none'
+        run: python build_docs.py
+
+      - name: Publish
+        if: steps.parse.outputs.action != 'none'
+        run: |
+          git config user.name  "psx-tracker bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A docs data/psx_data.json data/psx_data.js data/manual.json watchlist.json
+          if git diff --staged --quiet; then
+            echo "No changes."
+          else
+            git commit -m "${{ steps.parse.outputs.summary }}"
+            git push
+          fi
+
+      - name: Report back and close
+        if: always() && steps.parse.outputs.action != 'none'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require("fs");
+            let body;
+            if ("${{ job.status }}" === "success") {
+              const d = JSON.parse(fs.readFileSync("data/psx_data.json", "utf8"));
+              const names = Object.keys(d.stocks).sort().join(", ");
+              body = "Done — the dashboard is updated.\n\n"
+                   + "- Holdings: **" + Object.keys(d.stocks).length + "**\n"
+                   + "- Data timestamp: " + d.generatedAt + "\n"
+                   + "- Tracking: " + names + "\n\n"
+                   + "Open it: https://" + context.repo.owner.toLowerCase()
+                   + ".github.io/" + context.repo.repo + "/\n\n"
+                   + "_The published page can take another minute to update. "
+                   + "Pull to refresh if you still see the old numbers._";
+            } else {
+              body = "That did not finish cleanly. "
+                   + "[Open the log](" + context.serverUrl + "/" + context.repo.owner + "/"
+                   + context.repo.repo + "/actions/runs/" + context.runId + ") to see why.";
+            }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: context.issue.number, body
+            });
+            await github.rest.issues.update({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: context.issue.number, state: "closed"
+            });
