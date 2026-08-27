@@ -219,12 +219,18 @@ def fetch_symbol(sym, browser, attempts=2):
             time.sleep(3)
     if not dom:
         return None, "render failed or timed out"
-    if "Interest Coverage" not in dom and "Debt to Equity" not in dom:
-        if "Page Not Found" in dom or "doesn't exist" in dom:
-            return None, "no page for this symbol on the source site"
-        return None, "ratio table not present in rendered page"
+    if "Page Not Found" in dom or "doesn't exist" in dom:
+        return None, "no page for this symbol on the source site"
     rec = extract(dom)
-    return (rec, None) if rec else (None, "could not parse the ratio table")
+    if rec:
+        return rec, None
+    # Smaller and newly listed companies often have no ratio table published at
+    # all. That is missing source data, not a broken parser - say so plainly.
+    table, _ = parse_ratio_table(dom)
+    if not table:
+        return None, ("the source publishes no balance-sheet ratios for this symbol "
+                      "(common for small or recently listed companies)")
+    return None, "found the ratio table but none of the expected rows"
 
 
 # --------------------------------------------------------------------------
