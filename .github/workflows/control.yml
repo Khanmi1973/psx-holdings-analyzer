@@ -27,9 +27,14 @@ jobs:
   control:
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    # This repository is public, so anyone can open an issue. Only the owner may
-    # drive the watchlist; everyone else's issues are ignored entirely.
-    if: github.event.issue.user.login == github.repository_owner
+    # Anyone may ask for a stock to be collected - collecting is additive and
+    # affects nobody's watchlist, since those live in each visitor's browser.
+    # Removing from the shared collection stays owner-only, so a stranger cannot
+    # take data away from someone else's dashboard.
+    if: >-
+      github.event.issue.user.login == github.repository_owner ||
+      startsWith(github.event.issue.title, 'add ') ||
+      startsWith(github.event.issue.title, 'Add ')
 
     steps:
       - name: Get the code
@@ -46,18 +51,30 @@ jobs:
         id: parse
         env:
           TITLE: ${{ github.event.issue.title }}
+          IS_OWNER: ${{ github.event.issue.user.login == github.repository_owner }}
         run: python parse_request.py
 
-      - name: Not a recognised command
+      - name: Nothing to do
         if: steps.parse.outputs.action == 'none'
+        env:
+          IS_OWNER: ${{ github.event.issue.user.login == github.repository_owner }}
         uses: actions/github-script@v7
         with:
           script: |
+            const owner = process.env.IS_OWNER === "true";
+            const body = owner
+              ? "I did not recognise that request.\n\nTry one of:\n"
+                + "- `add LUCK` (or `add LUCK, SYS`)\n- `remove DCR`\n- `refresh`\n- `ratios`"
+              : "Thanks for the request.\n\nAnyone can ask for a stock to be collected "
+                + "with a title like `add LUCK` — that just adds it to the shared data "
+                + "and does not change anyone's watchlist.\n\n"
+                + "Refreshing and removing are limited to the repository owner.\n\n"
+                + "**You do not need this for your own watchlist.** Adding and removing "
+                + "on the dashboard is instant and private to your browser — it never "
+                + "affects what anyone else sees.";
             await github.rest.issues.createComment({
               owner: context.repo.owner, repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: "I did not recognise that request.\n\nTry one of:\n"
-                  + "- `add LUCK` (or `add LUCK, SYS`)\n- `remove DCR`\n- `refresh`\n- `ratios`"
+              issue_number: context.issue.number, body
             });
             await github.rest.issues.update({
               owner: context.repo.owner, repo: context.repo.repo,

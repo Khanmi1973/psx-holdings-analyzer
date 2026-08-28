@@ -538,25 +538,76 @@ def sector_stats(screener, universe):
             for s, v in by.items()}
 
 
-def build_dataset(symbols, progress=None):
-    if progress:
-        progress("Fetching market universe...")
-    universe = fetch_universe()
+def market_summary(screener, universe):
+    """Headline figures for every listed symbol, from the single screener call.
+
+    This is what lets any visitor search and add any stock without waiting for a
+    scrape: it is small enough to ship whole (a few hundred KB) and covers the
+    entire market, while the heavy per-company data is fetched only for the
+    covered set.
+    """
+    by_sym = {u["symbol"]: u for u in universe}
+    out = {}
+    for sym, r in screener.items():
+        u = by_sym.get(sym)
+        if not u or u.get("isDebt"):
+            continue
+        out[sym] = {
+            "name": u["name"],
+            "sector": u["sector"],
+            "price": r.get("price"),
+            "pe": r.get("pe"),
+            "divYield": r.get("divYield"),
+            "marketCap": r.get("marketCap"),
+            "change1Y": r.get("change1Y"),
+            "changePct": r.get("changePct"),
+            "vol30dAvg": r.get("vol30dAvg"),
+            "indices": r.get("listedIn") or "",
+        }
+    return out
+
+
+def covered_symbols(screener, extra=(), index="KSE100"):
+    """Which symbols get the full treatment: the index constituents plus any
+    symbol someone has actually asked for."""
+    idx = sorted(s for s, r in screener.items()
+                 if index in (r.get("listedIn") or ""))
+    out = list(idx)
+    for s in extra:
+        if s not in out:
+            out.append(s)
+    return out
+
+
+def build_dataset(symbols, progress=None, universe=None, screener=None):
+    """`universe` and `screener` may be passed in to avoid re-downloading them -
+    the screener alone is ~700KB and PSX will reset the connection if a large
+    run asks for it twice."""
+    if universe is None:
+        if progress:
+            progress("Fetching market universe...")
+        universe = fetch_universe()
     universe_idx = {u["symbol"]: u for u in universe}
-    if progress:
-        progress("Fetching market-wide screener (P/E, dividend yield)...")
-    screener = fetch_screener()
+    if screener is None:
+        if progress:
+            progress("Fetching market-wide screener (P/E, dividend yield)...")
+        screener = fetch_screener()
     secstats = sector_stats(screener, universe)
 
     results, errors = {}, {}
 
     def work(s):
-        try:
-            return s, build_symbol(s, screener, universe_idx), None
-        except Exception as e:
-            return s, None, "%s: %s" % (type(e).__name__, e)
+        # A dropped connection mid-run must cost one symbol, not the whole job.
+        last = None
+        for attempt in range(3):
+            try:
+                return s, build_symbol(s, screener, universe_idx), None
+            except Exception as e:
+                last = e
+                time.sleep(2.0 * (attempt + 1))
+        return s, None, "%s: %s" % (type(last).__name__, last)
 
-    # PSX throttles bursts; 3 workers keeps the whole watchlist reliable
+    # PSX throttles bursts; 3 workers keeps even a 100-symbol run reliable
     with ThreadPoolExecutor(max_workers=3) as ex:
         for i, (s, rec, err) in enumerate(ex.map(work, symbols), 1):
             if progress:
@@ -571,11 +622,13 @@ def build_dataset(symbols, progress=None):
     return {
         "generatedAt": time.strftime("%Y-%m-%d %H:%M:%S"),
         "source": "dps.psx.com.pk (Pakistan Stock Exchange Data Portal)",
-        "symbols": symbols,
+        "symbols": symbols,              # everything collected in full
+        "watchlist": load_watchlist(),   # the list a first-time visitor starts with
         "stocks": results,
         "errors": errors,
         "sectorStats": secstats,
         "universe": [u for u in universe if not u["isDebt"]],
+        "market": market_summary(screener, universe),
     }
 
 
@@ -612,11 +665,27 @@ def save_watchlist(lst):
 
 
 if __name__ == "__main__":
-    syms = [s.upper() for s in sys.argv[1:]] or load_watchlist()
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    only_watchlist = "--watchlist-only" in sys.argv
+
+    print("Fetching the market universe and screener...")
+    universe = fetch_universe()
+    screener = fetch_screener()
+
+    if args:
+        syms = [s.upper() for s in args]
+    elif only_watchlist:
+        syms = load_watchlist()
+    else:
+        # Cover the whole KSE-100 plus anything anyone has asked for, so every
+        # visitor can add those stocks instantly without a scrape of their own.
+        syms = covered_symbols(screener, load_watchlist())
+
     print("Scraping %d symbols from PSX..." % len(syms))
-    ds = build_dataset(syms, progress=lambda m: print("  " + m, flush=True))
+    ds = build_dataset(syms, progress=lambda m: print("  " + m, flush=True),
+                       universe=universe, screener=screener)
     save(ds)
-    print("\nSaved -> data/psx_data.json  (%d ok, %d failed)"
-          % (len(ds["stocks"]), len(ds["errors"])))
+    print("\nSaved -> data/psx_data.json  (%d ok, %d failed, %d in market index)"
+          % (len(ds["stocks"]), len(ds["errors"]), len(ds.get("market", {}))))
     for s, e in ds["errors"].items():
         print("  ! %s -> %s" % (s, e))

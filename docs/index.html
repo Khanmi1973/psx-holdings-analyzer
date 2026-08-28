@@ -275,7 +275,7 @@ EFERT,32.5,0.45,1.30,8.2,1.10,55.4"
 <div id="detail"><div class="sheet" id="sheet"></div></div>
 <div class="toast" id="toast"></div>
 
-<script src="data/psx_data.js" onerror="void 0"></script>
+<script src="data/index.js" onerror="void 0"></script>
 <script>
 /* ======================================================================
    PSX Holdings Analyzer — scoring engine + UI
@@ -624,21 +624,80 @@ async function saveManual(sym, fields) {
 let HAS_API = false;
 const SERVER = () => HAS_API;
 
+/* Your watchlist lives in YOUR browser. Nothing you add or remove is visible to
+   anyone else, and nothing anyone else does changes your list. The repository
+   only supplies the market data everybody shares. */
+const STARTER_KEY = 'psx_watchlist';
+let MY = [];
+
+function loadMine(starter) {
+  try {
+    const s = JSON.parse(localStorage.getItem(STARTER_KEY) || 'null');
+    if (Array.isArray(s) && s.length) return s;
+  } catch (e) { /* fall through to the starter list */ }
+  return (starter || []).slice();
+}
+function saveMine() {
+  MY = [...new Set(MY)];
+  try { localStorage.setItem(STARTER_KEY, JSON.stringify(MY)); } catch (e) {}
+}
+
+/* One record per stock, fetched the first time it is needed and then kept. */
+const STOCK_CACHE = {};
+async function loadStock(sym) {
+  if (STOCK_CACHE[sym] !== undefined) return STOCK_CACHE[sym];
+  const urls = HAS_API ? ['api/stock/' + sym] : ['data/stocks/' + sym + '.json'];
+  for (const u of urls) {
+    try {
+      const r = await fetch(u, {cache:'no-store'});
+      if (r.ok) { STOCK_CACHE[sym] = await r.json(); return STOCK_CACHE[sym]; }
+    } catch (e) { /* try next */ }
+  }
+  STOCK_CACHE[sym] = null;     // not covered - headline figures only
+  return null;
+}
+
 async function loadData() {
   try {
-    const r = await fetch('api/data', {cache:'no-store'});
+    const r = await fetch('api/index', {cache:'no-store'});
     if (r.ok && (r.headers.get('content-type') || '').includes('json')) {
       HAS_API = true;
       return await r.json();
     }
   } catch (e) { /* static hosting - fall through */ }
-  if (window.PSX_DATA) return window.PSX_DATA;
-  throw new Error('No data found. Run  python psx_scraper.py  to build data/psx_data.js');
+  if (window.PSX_INDEX) return window.PSX_INDEX;
+  throw new Error('No data found. Run  python psx_scraper.py  then  python build_docs.py');
+}
+
+/* Build a record for a symbol: the full scraped one when we have it, otherwise
+   a headline-only stub from the market index so it can still be listed. */
+function recordFor(sym) {
+  const full = STOCK_CACHE[sym];
+  if (full) return full;
+  const m = (DATA.market || {})[sym];
+  if (!m) return null;
+  return {
+    symbol: sym, name: m.name, sector: m.sector, headlineOnly: true,
+    change1Y: m.change1Y, changePct: m.changePct, vol30dAvg: m.vol30dAvg,
+    fundamentals: {}, technicals: {},
+    valuation: {price: m.price, pe: m.pe, divYield: m.divYield, marketCap: m.marketCap},
+    sectorStats: (DATA.sectorStats || {})[m.sector] || {},
+    dataWarnings: ['Only headline figures are collected for this symbol so far, so '
+      + 'the growth, margin and price-trend parts of the score are missing. It joins '
+      + 'the full set on the next collection run.']
+  };
 }
 
 function rebuild() {
-  ROWS = Object.values(DATA.stocks).map(analyse);
+  ROWS = MY.map(recordFor).filter(Boolean).map(analyse);
   sortRows(); renderStrip(); renderTable();
+}
+
+/* Pull in every stock on the list, then redraw once. */
+async function hydrate() {
+  const covered = new Set(DATA.covered || []);
+  await Promise.all(MY.filter(s => covered.has(s)).map(loadStock));
+  rebuild();
 }
 
 /* ======================================================================
@@ -1028,17 +1087,20 @@ $('#q').oninput = () => {
   picked = null;
   const box = $('#qres');
   if (q.length < 2) { box.classList.remove('on'); return; }
-  const have = new Set(Object.keys(DATA.stocks));
-  const hits = (DATA.universe || [])
-    .filter(u => !have.has(u.symbol) &&
-      (u.symbol.toLowerCase().includes(q) || u.name.toLowerCase().includes(q)))
-    .sort((a, b) => (a.symbol.toLowerCase().indexOf(q) === 0 ? -1 : 0) -
-                    (b.symbol.toLowerCase().indexOf(q) === 0 ? -1 : 0))
+  const have = new Set(MY);
+  const covered = new Set(DATA.covered || []);
+  const hits = Object.entries(DATA.market || {})
+    .filter(([sym, m]) => !have.has(sym) &&
+      (sym.toLowerCase().includes(q) || (m.name || '').toLowerCase().includes(q)))
+    .sort((a, b) => (b[0].toLowerCase().startsWith(q) ? 0 : 1) -
+                    (a[0].toLowerCase().startsWith(q) ? 0 : 1)
+                 || (b[1].marketCap || 0) - (a[1].marketCap || 0))
     .slice(0, 40);
   box.innerHTML = hits.length
-    ? hits.map(u => `<div class="ritem" data-s="${u.symbol}"><b>${u.symbol}</b>
-        <span>${u.name}</span><em>${u.sector}</em></div>`).join('')
-    : '<div class="ritem"><span>No match (or already tracked)</span></div>';
+    ? hits.map(([sym, m]) => `<div class="ritem" data-s="${sym}"><b>${sym}</b>
+        <span>${m.name}</span>
+        <em>${covered.has(sym) ? '<span class="pos">ready</span>' : 'headline only'} · ${m.sector}</em></div>`).join('')
+    : '<div class="ritem"><span>No match (or already on your list)</span></div>';
   box.classList.add('on');
   box.querySelectorAll('.ritem[data-s]').forEach(el => {
     el.onclick = () => { picked = el.dataset.s; $('#q').value = picked; box.classList.remove('on'); };
@@ -1048,30 +1110,59 @@ $('#q').oninput = () => {
 async function addSym() {
   const sym = (picked || $('#q').value.trim().toUpperCase());
   if (!sym) return toast('Type or pick a symbol first');
-  if (DATA.stocks[sym]) return toast(sym + ' is already tracked');
-  if (!SERVER()) {
-    $('#q').value = ''; picked = null; $('#qres').classList.remove('on');
-    return askGitHub('add ' + sym, `Adding ${sym}`);
+  if (MY.includes(sym)) return toast(sym + ' is already on your list');
+  if (!(DATA.market || {})[sym]) return toast(sym + ' is not a symbol listed on PSX', 5000);
+
+  $('#bAddGo').disabled = true;
+  MY.push(sym); saveMine();
+  $('#q').value = ''; picked = null; $('#qres').classList.remove('on');
+
+  const covered = new Set(DATA.covered || []);
+  if (covered.has(sym)) {
+    await loadStock(sym); rebuild();
+    toast(sym + ' added to your list');
+  } else {
+    rebuild();
+    // Not in the collected set yet: it is listed with headline figures now, and
+    // asking for a collection run is optional.
+    toast(sym + ' added — headline figures only until it is collected in full', 7000);
+    if (!SERVER()) offerCollection(sym);
+    else {
+      try {
+        await fetch('/api/add?symbol=' + encodeURIComponent(sym), {method:'POST'});
+        await loadStock(sym); rebuild();
+      } catch (e) { /* headline view still works */ }
+    }
   }
-  $('#bAddGo').disabled = true; toast('Scraping ' + sym + ' from PSX…', 60000);
-  try {
-    const r = await fetch('/api/add?symbol=' + encodeURIComponent(sym), {method:'POST'});
-    const j = await r.json();
-    if (!r.ok || j.error) throw new Error(j.error || 'failed');
-    DATA = j; rebuild();
-    $('#q').value = ''; picked = null; $('#qres').classList.remove('on');
-    toast(sym + ' added');
-  } catch (e) { toast('Could not add ' + sym + ': ' + e.message, 6000); }
   $('#bAddGo').disabled = false;
+}
+
+/* Only ever needed for a stock outside the collected set. */
+function offerCollection(sym) {
+  const el = document.createElement('div');
+  el.className = 'toast on';
+  el.style.cssText += ';bottom:70px;max-width:420px;text-align:left';
+  el.innerHTML = `<b>${sym}</b> is listed on your dashboard with headline figures.<br>`
+    + `<span class="note">Want its full financials and score? That needs a collection run, `
+    + `which updates the shared data for everyone.</span><br>`
+    + `<button class="primary" style="margin-top:8px" id="collectYes">Request full data</button> `
+    + `<button style="margin-top:8px" id="collectNo">Not now</button>`;
+  document.body.appendChild(el);
+  el.querySelector('#collectNo').onclick = () => el.remove();
+  el.querySelector('#collectYes').onclick = () => {
+    el.remove();
+    askGitHub('add ' + sym, `Collecting full data for ${sym}`);
+  };
+  setTimeout(() => el.remove(), 20000);
 }
 $('#bAddGo').onclick = addSym;
 $('#q').onkeydown = e => { if (e.key === 'Enter') addSym(); };
 
-async function removeSym(sym) {
-  if (!confirm('Remove ' + sym + ' from the watchlist?')) return;
-  if (!SERVER()) { closeDetail(); return askGitHub('remove ' + sym, `Removing ${sym}`); }
-  const r = await fetch('/api/remove?symbol=' + encodeURIComponent(sym), {method:'POST'});
-  DATA = await r.json(); closeDetail(); rebuild(); toast(sym + ' removed');
+/* Removing only affects your own list - the shared data is left alone. */
+function removeSym(sym) {
+  MY = MY.filter(s => s !== sym);
+  saveMine(); closeDetail(); rebuild();
+  toast(sym + ' removed from your list');
 }
 
 $('#bRefresh').onclick = async () => {
@@ -1187,6 +1278,14 @@ async function watchForUpdate(maxMinutes = 12) {
 }
 function stopWatching() { watching = false; cloudBusy(false); }
 
+async function resetMine() {
+  if (!confirm('Reset your watchlist to the default list?')) return;
+  try { localStorage.removeItem(STARTER_KEY); } catch (e) {}
+  MY = (DATA.starter || []).slice();
+  saveMine(); rebuild(); await hydrate();
+  toast('Your list is back to the default ' + MY.length + ' holdings');
+}
+
 /* Read the freshly committed data straight from the repo, so we do not have to
    wait for the Pages deployment to catch up.
 
@@ -1195,13 +1294,13 @@ function stopWatching() { watching = false; cloudBusy(false); }
    would show stale data immediately after a successful run. The API reflects
    the commit at once. Raw is kept only as a fallback. */
 function parsePayload(txt) {
-  const json = txt.replace(/^\s*window\.PSX_DATA\s*=\s*/, '').replace(/;\s*$/, '');
+  const json = txt.replace(/^\s*window\.PSX_INDEX\s*=\s*/, '').replace(/;\s*$/, '');
   const d = JSON.parse(json);
-  return d && d.stocks ? d : null;
+  return d && d.market ? d : null;
 }
 
 async function reloadFromRepo() {
-  const path = 'docs/data/psx_data.js';
+  const path = 'docs/data/index.js';
   const bust = Date.now();
   /* All three are public reads - no token anywhere. The Contents API is tried
      first because raw.githubusercontent.com caches for minutes and will happily
@@ -1220,7 +1319,7 @@ async function reloadFromRepo() {
       return r.ok ? parsePayload(await r.text()) : null;
     },
     async () => {                                    // the deployed page itself
-      const r = await fetch(`data/psx_data.js?t=${bust}`, {cache:'no-store'});
+      const r = await fetch(`data/index.js?t=${bust}`, {cache:'no-store'});
       return r.ok ? parsePayload(await r.text()) : null;
     }
   ];
@@ -1231,9 +1330,10 @@ async function reloadFromRepo() {
       DATA = d;
       if (d.manual) {
         MANUAL = {...MANUAL, ...d.manual};
-        localStorage.setItem('psx_manual', JSON.stringify(MANUAL));
+        try { localStorage.setItem('psx_manual', JSON.stringify(MANUAL)); } catch (e) {}
       }
-      rebuild(); stamp(); applyMode();
+      for (const k of Object.keys(STOCK_CACHE)) delete STOCK_CACHE[k];   // refetch
+      stamp(); applyMode(); await hydrate();
       return true;
     } catch (e) { /* try the next source */ }
   }
@@ -1299,7 +1399,7 @@ $('#bBsImp').onclick = async () => {
   let head = split(rows[0]).map(h => h.toLowerCase());
   let start = 1;
   if (!head.includes('symbol')) { head = ['symbol', ...BS_KEYS]; start = 0; }
-  const known = new Set(Object.keys(DATA.stocks));
+  const known = new Set(Object.keys(DATA.market || {}));
   let ok = 0, skipped = [];
   for (let i = start; i < rows.length; i++) {
     const c = split(rows[i]);
@@ -1355,28 +1455,27 @@ function applyMode() {
     b.style.cssText = 'width:100%;margin-top:6px;color:var(--tx3)';
     document.querySelector('header').appendChild(b);
   }
-  b.innerHTML = local
-    ? ''
-    : cloud
-      ? 'Updates by itself through the trading day. <b>Refresh</b> and <b>Add</b> send a '
-        + 'one-tap request to GitHub — no sign-in needed here, no laptop needed. '
-        + `<a href="https://github.com/${GH.repo}/issues" target="_blank" rel="noopener">your requests ↗</a>`
-      : 'Read-only copy. Open the published dashboard to add stocks or refresh, '
-        + 'or run <b class="mono">start.bat</b> on your PC.';
-  b.style.display = local ? 'none' : '';
+  const n = (DATA.covered || []).length, m = Object.keys(DATA.market || {}).length;
+  b.innerHTML = `<b>This watchlist is yours alone</b> — it is saved in this browser, `
+    + `so what you add or remove is invisible to anyone else you share the link with, `
+    + `and their changes never touch yours. `
+    + `${n} stocks are ready to add instantly; all ${m} PSX symbols are searchable. `
+    + `Prices refresh by themselves through the trading day. `
+    + `<a href="#" onclick="resetMine();return false">reset to the default list</a>`;
+  b.style.display = '';
 }
 
 /* ---------- boot ---------- */
-loadData().then(d => {
+loadData().then(async d => {
   DATA = d; stamp();
-  // server copy wins when present, so the figures follow the machine not the browser
   if (d.manual && Object.keys(d.manual).length) {
     MANUAL = {...MANUAL, ...d.manual};
-    localStorage.setItem('psx_manual', JSON.stringify(MANUAL));
+    try { localStorage.setItem('psx_manual', JSON.stringify(MANUAL)); } catch (e) {}
   }
-  renderWeights(); rebuild(); applyMode();
-  const errs = Object.keys(d.errors || {});
-  if (errs.length) toast('Could not fetch: ' + errs.join(', '), 6000);
+  MY = loadMine(d.starter || d.covered || []);
+  saveMine();
+  renderWeights(); applyMode(); rebuild();
+  await hydrate();
 }).catch(e => {
   document.querySelector('main').innerHTML =
     `<div class="panel" style="padding:22px">

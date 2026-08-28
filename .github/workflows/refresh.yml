@@ -60,6 +60,8 @@ jobs:
           REMOVE: ${{ inputs.remove }}
         run: python manage_watchlist.py --add "$ADD" --remove "$REMOVE"
 
+      # Covers the whole KSE-100 plus anything anyone has asked for, so every
+      # visitor can add those instantly without waiting for a collection run.
       - name: Scrape PSX
         run: python psx_scraper.py
 

@@ -26,6 +26,31 @@ No account, token or setup is needed to use the hosted copy.
 
 ---
 
+## Sharing the link: everyone gets their own watchlist
+
+Send the link to anyone. **Each person's watchlist lives in their own browser**, so:
+
+- What your friend adds or removes is invisible to you, and yours to them.
+- Nobody can change what anyone else sees.
+- No account, no sign-in, nothing to install.
+
+What *is* shared is the market data — prices, financials, ratios — because that is the
+same for everybody and is collected once for all of us.
+
+**Adding a stock is instant.** The collection covers the whole **KSE-100** plus anything
+anyone has asked for, so those add with a single tap and no waiting. Every one of the
+~744 PSX symbols is searchable; picking one outside the collected set adds it straight
+away with headline figures (price, P/E, dividend yield, 1-year change) and offers to
+request a full collection run.
+
+*Reset to the default list* in the header restores the starting watchlist.
+
+The one shared thing a visitor can change is the *collected set*, and only by adding to
+it: anyone may open a request titled `add LUCK`, which is additive and harms nobody.
+Removing data, refreshing and ratio runs stay limited to the repository owner.
+
+---
+
 ## Using it from your phone
 
 **There is no sign-in, no token and no setup.** Open the link and it works.
@@ -34,10 +59,14 @@ No account, token or setup is needed to use the hosted copy.
 09:00 and 11:00 UTC during the session and again at 12:30 UTC after the close, every
 weekday, and republishes. Open the dashboard and the numbers are already current.
 
-**Adding or removing a stock** takes one tap. The buttons open a pre-filled GitHub issue —
-you are already signed in to GitHub on your phone, so you just press *Submit*. A workflow
-reads it, does the work, replies with the result and closes the issue. The dashboard
-watches for the new data and updates itself when it lands, usually in 2 to 4 minutes.
+**Adding and removing on your own watchlist needs none of this** — it is instant and
+private to your browser. GitHub is only involved when you want a stock collected that
+nobody has collected yet, or when you (as the owner) want to force a refresh.
+
+When it is needed, the button opens a pre-filled GitHub issue — you are already signed in
+to GitHub on your phone, so you just press *Submit*. A workflow reads it, does the work,
+replies with the result and closes the issue. The dashboard watches for the new data and
+updates itself when it lands, usually in 2 to 4 minutes.
 
 You can send the same requests from the GitHub app or website by opening an issue titled:
 
@@ -46,15 +75,16 @@ You can send the same requests from the GitHub app or website by opening an issu
 | `add LUCK` | adds it, scrapes it, fetches its balance-sheet ratios |
 | `add LUCK, SYS, PSO` | adds several at once |
 | `remove DCR` | drops it from the watchlist |
-| `refresh` | re-scrapes every holding now |
-| `ratios` | re-scrapes and refreshes every balance-sheet ratio (slower) |
+| `refresh` | re-scrapes everything now (owner only) |
+| `ratios` | re-scrapes and refreshes every balance-sheet ratio (owner only, slower) |
 
 Anything unrecognised gets a reply explaining the options, and nothing changes.
 
-**Only you can drive it.** The repository is public, so anyone can open an issue — the
-workflow checks the issue was opened by the repository owner and ignores everyone else.
-Titles are parsed in Python and never reach a shell, and symbols are validated against
-the live PSX listing before anything is written.
+**Who can do what.** The repository is public, so anyone can open an issue. `add` is open
+to everyone because it only ever adds to the shared collection and cannot alter anyone's
+watchlist. `remove`, `refresh` and `ratios` are refused unless the issue was opened by
+the repository owner. Titles are parsed in Python and never reach a shell, and symbols
+are validated against the live PSX listing before anything is written.
 
 Nothing on the page reads or stores a credential of any kind, and no secret exists
 anywhere in the repository.

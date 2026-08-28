@@ -61,7 +61,17 @@ def parse(title):
 def main():
     title = os.environ.get("TITLE", "")
     r = parse(title)
+
+    # Anyone may ask for a stock to be collected: that is additive and changes
+    # nobody's watchlist, because watchlists live in each visitor's browser.
+    # Removing data, or kicking off a long ratios run, stays owner-only.
+    is_owner = os.environ.get("IS_OWNER", "true").lower() == "true"
+    if not is_owner and r["action"] not in ("add",):
+        print("non-owner may only request 'add'; ignoring %r" % r["action"])
+        r = {"action": "none", "add": "", "remove": "", "summary": ""}
+
     print("title  : %r" % title)
+    print("owner  : %s" % is_owner)
     print("action : %s" % r["action"])
     if r["add"]:
         print("add    : %s" % r["add"])

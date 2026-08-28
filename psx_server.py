@@ -133,6 +133,25 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             if u.path == "/api/data":
                 return self._json(dataset())
+            if u.path == "/api/index":
+                ds = dataset()
+                return self._json({
+                    "generatedAt": ds.get("generatedAt"),
+                    "source": ds.get("source"),
+                    "covered": sorted(ds.get("stocks") or {}),
+                    "starter": [s for s in ps.load_watchlist()
+                                if s in (ds.get("stocks") or {})],
+                    "market": ds.get("market") or {},
+                    "sectorStats": ds.get("sectorStats") or {},
+                    "universe": ds.get("universe") or [],
+                    "manual": load_manual(),
+                    "errors": ds.get("errors") or {},
+                })
+            if u.path.startswith("/api/stock/"):
+                sym = u.path.rsplit("/", 1)[-1].upper()
+                rec = (dataset().get("stocks") or {}).get(sym)
+                return self._json(rec) if rec else self._json(
+                    {"error": "%s has not been collected" % sym}, 404)
             if u.path == "/api/ratios":
                 with LOCK:
                     import psx_ratios as pr
